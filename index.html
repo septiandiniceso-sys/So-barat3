@@ -1901,7 +1901,7 @@
       return allRows;
     }
 
-    async function loadMasterItemsFast(periodId, storeId, mode) {
+    async function (periodId, storeId, mode) {
       if (!storeId) return { source: 'SHEETS_FALLBACK', items: null };
 
       try {
@@ -1986,88 +1986,6 @@
               lastEditTime: (r.last_edit_time || '').toString().trim(),
               editHistory: Array.isArray(r.edit_history) ? r.edit_history : []
             });
-          });
-
-          var finalItems = (mode === 'SELISIH')
-            ? mappedAll.filter(function(it) { return Number(it.kl || 0) !== 0; })
-            : mappedAll;
-
-          return {
-            source: 'SUPABASE',
-            items: finalItems,
-            totalAllCount: mappedAll.length
-          };
-        }
-      } catch (e) {
-        console.warn('Fallback ke Google Sheets:', e.message);
-      }
-      return { source: 'SHEETS_FALLBACK', items: null };
-    }
-
-    /**
-     * Ambil 3.500+ SKU Master langsung dari Supabase (< 0.5 detik)
-     * Jika toko belum pernah disinkron ke Supabase, otomatis fallback ke Google Sheets.
-     */
-    async function loadMasterItemsFast(periodId, storeId, mode) {
-      if (!storeId) return { source: 'SHEETS_FALLBACK', items: null };
-
-      try {
-        var targetPeriod = (periodId || getActivePeriodNameClean() || getCurrentJakartaYearMonth()).toString().trim();
-        var rows = await callSupabaseRpc('rpc_get_master_items', {
-          p_period_id: targetPeriod,
-          p_store_id: storeId
-        });
-
-        // Coba cadangan yyyy-MM jika toko sebelumnya disinkron dengan format tanggal default
-        if (!Array.isArray(rows) || rows.length === 0) {
-          var ymFallback = getCurrentJakartaYearMonth();
-          if (targetPeriod !== ymFallback) {
-            rows = await callSupabaseRpc('rpc_get_master_items', {
-              p_period_id: ymFallback,
-              p_store_id: storeId
-            });
-          }
-        }
-
-        if (Array.isArray(rows) && rows.length > 0) {
-          var mappedAll = rows.map(function(r) {
-            var klNum = Number(r.kl || 0);
-            var hargaNum = Math.round(Number(r.harga || 0));
-            var totalNum = Math.round(Number(r.total || 0));
-            var fotoRaw = (r.foto_bukti_selisih || '').toString().trim();
-            var isFisikEmpty = (r.fisik === null || r.fisik === undefined || r.fisik === '');
-            var isRtrEmpty = (r.rtr === null || r.rtr === undefined || r.rtr === '');
-
-            return {
-              rowIndex: Number(r.sheet_row || 0),
-              sku: cleanSkuLocal(r.sku || ''),
-              product: (r.product || '').toString().trim(),
-              stockQty: String(r.stock_qty !== null && r.stock_qty !== undefined ? r.stock_qty : 0),
-              fisik: isFisikEmpty ? '' : r.fisik,
-              qtyUpd: String(r.qty_upd !== null && r.qty_upd !== undefined ? r.qty_upd : (r.stock_qty !== null && r.stock_qty !== undefined ? r.stock_qty : 0)),
-              jam: (r.jam || '-').toString().trim() || '-',
-              labelTag: (r.label_tag || '').toString().trim().toUpperCase(),
-              gudang: String(r.gudang !== null && r.gudang !== undefined ? r.gudang : 0),
-              rtr: isRtrEmpty ? '' : r.rtr,
-              kl: klNum,
-              klDisp: String(klNum),
-              flVerif: (r.fl_verif || '').toString().trim(),
-              pendamping: (r.pendamping || '').toString().trim(),
-              ket: (r.ket || '').toString().trim(),
-              kategori: (r.kategori || '').toString().trim(),
-              harga: 'Rp ' + hargaNum.toLocaleString('id-ID'),
-              total: totalNum < 0
-                ? ('Rp (' + Math.abs(totalNum).toLocaleString('id-ID') + ')')
-                : ('Rp ' + totalNum.toLocaleString('id-ID')),
-              store: (r.store || '').toString().trim(),
-              email: (r.email || '').toString().trim(),
-              fotoBukti: fotoRaw,
-              fotoDriveId: extractDriveFileIdLocal(fotoRaw),
-              editCount: Number(r.edit_count || 0),
-              lastEditBy: (r.last_edit_by || '').toString().trim(),
-              lastEditTime: (r.last_edit_time || '').toString().trim(),
-              editHistory: Array.isArray(r.edit_history) ? r.edit_history : []
-            };
           });
 
           var finalItems = (mode === 'SELISIH')
