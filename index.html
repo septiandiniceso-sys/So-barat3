@@ -1901,7 +1901,7 @@
       return allRows;
     }
 
-    async function (periodId, storeId, mode) {
+    async function loadMasterItemsFast(periodId, storeId, mode) {
       if (!storeId) return { source: 'SHEETS_FALLBACK', items: null };
 
       try {
