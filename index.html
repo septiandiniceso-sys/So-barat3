@@ -1860,8 +1860,9 @@
       return getCurrentJakartaYearMonth();
     }
 
-    async function callSupabaseRpc(fnName, paramsObj) {
-      var res = await fetch(SB_URL + '/rest/v1/rpc/' + fnName, {
+    async function callSupabaseRpc(fnName, paramsObj, querySuffix) {
+      var url = SB_URL + '/rest/v1/rpc/' + fnName + (querySuffix || '');
+      var res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1875,6 +1876,132 @@
         throw new Error('Supabase RPC ' + fnName + ' gagal (' + res.status + '): ' + errText);
       }
       return await res.json();
+    }
+
+    /**
+     * Ambil SELURUH 3.500+ SKU Master dari Supabase secara bertahap per 1.000 baris
+     * + hitung otomatis selisih (kl) & total nominal jika RPC belum mengembalikannya.
+     */
+    async function fetchAllSupabaseMasterRows(periodId, storeId) {
+      var allRows = [];
+      var pageSize = 1000;
+      var offset = 0;
+
+      while (offset < 20000) {
+        var chunk = await callSupabaseRpc(
+          'rpc_get_master_items',
+          { p_period_id: periodId, p_store_id: storeId },
+          '?limit=' + pageSize + '&offset=' + offset
+        );
+        if (!Array.isArray(chunk) || chunk.length === 0) break;
+        allRows = allRows.concat(chunk);
+        if (chunk.length < pageSize) break;
+        offset += pageSize;
+      }
+      return allRows;
+    }
+
+    async function loadMasterItemsFast(periodId, storeId, mode) {
+      if (!storeId) return { source: 'SHEETS_FALLBACK', items: null };
+
+      try {
+        var targetPeriod = (periodId || getActivePeriodNameClean() || getCurrentJakartaYearMonth()).toString().trim();
+        var rows = await fetchAllSupabaseMasterRows(targetPeriod, storeId);
+
+        if (!Array.isArray(rows) || rows.length === 0) {
+          var ymFallback = getCurrentJakartaYearMonth();
+          if (targetPeriod !== ymFallback) {
+            rows = await fetchAllSupabaseMasterRows(ymFallback, storeId);
+          }
+        }
+
+        if (Array.isArray(rows) && rows.length > 0) {
+          var seenSku = {};
+          var mappedAll = [];
+
+          rows.forEach(function(r) {
+            var skuClean = cleanSkuLocal(r.sku || '');
+            if (skuClean && seenSku[skuClean]) return;
+            if (skuClean) seenSku[skuClean] = true;
+
+            var stockQtyNum = Number(r.stock_qty !== null && r.stock_qty !== undefined ? r.stock_qty : 0);
+            var rawQtyUpd = (r.qty_upd !== undefined && r.qty_upd !== null && r.qty_upd !== '')
+              ? r.qty_upd
+              : (r.stok_upd !== undefined && r.stok_upd !== null && r.stok_upd !== '' ? r.stok_upd : stockQtyNum);
+            var qtyUpdNum = Number(rawQtyUpd || 0);
+
+            var rawGudang = (r.gudang !== undefined && r.gudang !== null)
+              ? r.gudang
+              : (r.stok_gudang !== undefined && r.stok_gudang !== null ? r.stok_gudang : 0);
+            var gudangNum = Number(rawGudang || 0);
+
+            var isFisikEmpty = (r.fisik === null || r.fisik === undefined || r.fisik === '');
+            var fisikNum = isFisikEmpty ? 0 : Number(r.fisik || 0);
+            var isRtrEmpty = (r.rtr === null || r.rtr === undefined || r.rtr === '');
+            var rtrNum = isRtrEmpty ? 0 : Number(r.rtr || 0);
+            var hargaNum = Math.round(Number(r.harga || 0));
+
+            var rawKl = (r.kl !== undefined && r.kl !== null) ? r.kl
+                      : (r.k_l !== undefined && r.k_l !== null) ? r.k_l
+                      : (r.selisih !== undefined && r.selisih !== null) ? r.selisih
+                      : null;
+
+            var klNum = Number(rawKl || 0);
+            var computedKl = isFisikEmpty ? 0 : ((fisikNum + gudangNum + rtrNum) - qtyUpdNum);
+            if ((rawKl === null || Number(rawKl) === 0) && computedKl !== 0) {
+              klNum = computedKl;
+            }
+
+            var rawTotal = (r.total !== undefined && r.total !== null) ? Number(r.total) : 0;
+            var totalNum = (rawTotal !== 0) ? Math.round(rawTotal) : Math.round(klNum * hargaNum);
+            var fotoRaw = (r.foto_bukti_selisih || r.foto_bukti || '').toString().trim();
+
+            mappedAll.push({
+              rowIndex: Number(r.sheet_row || 0),
+              sku: skuClean,
+              product: (r.product || '').toString().trim(),
+              stockQty: String(stockQtyNum),
+              fisik: isFisikEmpty ? '' : r.fisik,
+              qtyUpd: String(qtyUpdNum),
+              jam: (r.jam || r.jam_update || '-').toString().trim() || '-',
+              labelTag: (r.label_tag || '').toString().trim().toUpperCase(),
+              gudang: String(gudangNum),
+              rtr: isRtrEmpty ? '' : r.rtr,
+              kl: klNum,
+              klDisp: String(klNum),
+              flVerif: (r.fl_verif || '').toString().trim(),
+              pendamping: (r.pendamping || '').toString().trim(),
+              ket: (r.ket || '').toString().trim(),
+              kategori: (r.kategori || '').toString().trim(),
+              harga: 'Rp ' + hargaNum.toLocaleString('id-ID'),
+              total: totalNum < 0
+                ? ('Rp (' + Math.abs(totalNum).toLocaleString('id-ID') + ')')
+                : ('Rp ' + totalNum.toLocaleString('id-ID')),
+              store: (r.store || '').toString().trim(),
+              email: (r.email || '').toString().trim(),
+              fotoBukti: fotoRaw,
+              fotoDriveId: extractDriveFileIdLocal(fotoRaw),
+              editCount: Number(r.edit_count || 0),
+              lastEditBy: (r.last_edit_by || '').toString().trim(),
+              lastEditTime: (r.last_edit_time || '').toString().trim(),
+              editHistory: Array.isArray(r.edit_history) ? r.edit_history : []
+            });
+          });
+
+          var finalItems = (mode === 'SELISIH')
+            ? mappedAll.filter(function(it) { return Number(it.kl || 0) !== 0; })
+            : mappedAll;
+
+          return {
+            source: 'SUPABASE',
+            items: finalItems,
+            totalAllCount: mappedAll.length
+          };
+        }
+      } catch (e) {
+        console.warn('Fallback ke Google Sheets:', e.message);
+      }
+      return { source: 'SHEETS_FALLBACK', items: null };
     }
 
     /**
