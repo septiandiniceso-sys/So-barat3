@@ -1785,6 +1785,76 @@
   </div>
 
   <script>
+    // ============================================================================
+// MESIN HYBRID SUPABASE (BARAT 3 PORTAL v2.0 — LOADING < 0.5 DETIK)
+// ============================================================================
+const SB_URL = 'https://omlbquuhbbuxqrvmicuk.supabase.co';
+const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9tbGJxdXVoYmJ1eHFydm1pY3VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUyMzMyMDUsImV4cCI6MjExMDgwOTIwNX0.1kyw-_Ld6t4Tz4YiJujsJoTmiLnivreB0-ikLz5B_C8';
+
+async function callSupabaseRpc(fnName, paramsObj) {
+  const res = await fetch(`${SB_URL}/rest/v1/rpc/${fnName}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SB_ANON_KEY,
+      'Authorization': `Bearer ${SB_ANON_KEY}`
+    },
+    body: JSON.stringify(paramsObj || {})
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Supabase RPC ${fnName} gagal (${res.status}): ${errText}`);
+  }
+  return await res.json();
+}
+
+/**
+ * Ambil 3.500+ SKU Master langsung dari Supabase (< 0.5 detik)
+ * Jika toko belum pernah disinkron ke Supabase, otomatis fallback ke Google Sheets.
+ */
+async function loadMasterItemsFast(periodId, storeId, mode) {
+  try {
+    const rows = await callSupabaseRpc('rpc_get_master_items', {
+      p_period_id: periodId,
+      p_store_id: storeId
+    });
+    if (Array.isArray(rows) && rows.length > 0) {
+      let filtered = rows;
+      if (mode === 'SELISIH') {
+        filtered = rows.filter(r => Number(r.kl || 0) !== 0);
+      }
+      return {
+        source: 'SUPABASE',
+        items: filtered.map(r => ({
+          rowIndex: r.sheet_row || 0,
+          sku: r.sku || '',
+          product: r.product || '',
+          stockQty: String(r.stock_qty ?? 0),
+          fisik: r.fisik ?? '',
+          qtyUpd: String(r.qty_upd ?? 0),
+          jam: r.jam || '-',
+          labelTag: (r.label_tag || '').toUpperCase(),
+          gudang: String(r.gudang ?? 0),
+          rtr: r.rtr ?? '',
+          kl: Number(r.kl || 0),
+          klDisp: String(r.kl ?? 0),
+          flVerif: r.fl_verif || '',
+          pendamping: r.pendamping || '',
+          ket: r.ket || '',
+          kategori: r.kategori || '',
+          harga: String(r.harga ?? 0),
+          total: 'Rp ' + Math.round(Number(r.total || 0)).toLocaleString('id-ID'),
+          store: r.store || '',
+          email: r.email || '',
+          fotoBukti: r.foto_bukti_selisih || ''
+        }))
+      };
+    }
+  } catch (e) {
+    console.warn('Fallback ke Google Sheets:', e.message);
+  }
+  return { source: 'SHEETS_FALLBACK', items: null };
+}
     // =========================================================================
     // JEMBATAN API GITHUB PAGES -> GOOGLE APPS SCRIPT
     // =========================================================================
