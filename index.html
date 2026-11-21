@@ -394,7 +394,7 @@
       line-height: 1.2;
     }
 
-    /* ================= SCANNER & UPLOAD ================= */
+    /* ================= SCANNER & INLINE MINI CAMERA ================= */
     .scanner-frame-box {
       background: #0f172a;
       border-radius: 14px;
@@ -403,11 +403,26 @@
       max-width: 520px;
       margin: 0 auto 1rem auto;
     }
-    #qrReader {
+    #qrReader, #qrReaderVerif {
       width: 100%;
       border-radius: 10px;
       overflow: hidden;
       background: #000000;
+    }
+
+    .inline-cam-box {
+      background: #0f172a;
+      border-radius: 12px;
+      padding: 0.6rem;
+      margin-bottom: 0.5rem;
+    }
+    #modalInlineCamVideo {
+      width: 100%;
+      max-height: 240px;
+      border-radius: 8px;
+      background: #000000;
+      object-fit: cover;
+      display: block;
     }
 
     .dropzone-box {
@@ -1099,7 +1114,7 @@
       </div>
 
       <!-- ========================================================================= -->
-      <!-- MENU 3: VERIFIKASI SELISIH (KS & LS) — CARD VIEW MOBILE + FOTO BUKTI      -->
+      <!-- MENU 3: VERIFIKASI SELISIH (KS & LS) — SCAN BARCODE + CARD VIEW + FOTO    -->
       <!-- ========================================================================= -->
       <div class="tab-pane fade no-print" id="paneVerifSelisih">
         <div class="control-toolbar">
@@ -1150,13 +1165,39 @@
           </div>
         </div>
 
-        <!-- Panel Pencarian & Filter Cerdas -->
+        <!-- Panel Scanner Barcode, Pencarian & Filter Cerdas (VERIFIKASI SELISIH) -->
         <div class="card border-0 shadow-sm rounded-4 p-3 mb-3">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <div>
+              <h6 class="fw-bold mb-0"><i class="fa-solid fa-barcode text-danger me-2"></i>Scan &amp; Cari Barang Selisih</h6>
+              <p class="text-muted small mb-0">Scan barcode barang di rak untuk langsung buka pop-up verifikasi.</p>
+            </div>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-danger fw-bold btn-sm px-3 py-2" id="btnStartVerifCamera" onclick="startBarcodeScanner('SELISIH')">
+                <i class="fa-solid fa-camera me-1"></i> Scan Barcode
+              </button>
+              <button type="button" class="btn btn-secondary fw-bold btn-sm px-3 py-2" id="btnStopVerifCamera" onclick="stopBarcodeScanner()" style="display: none;">
+                <i class="fa-solid fa-video-slash me-1"></i> Tutup Kamera
+              </button>
+            </div>
+          </div>
+
+          <div id="verifCameraStatusMsg" class="small fw-semibold mb-2"></div>
+
+          <div id="verifBarcodeReaderWrapper" class="scanner-frame-box" style="display: none;">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="small fw-bold"><i class="fa-solid fa-qrcode text-warning me-1"></i> Arahkan kamera ke Barcode barang selisih</span>
+              <button type="button" class="btn btn-xs btn-outline-light py-0 px-2 small" onclick="stopBarcodeScanner()">Tutup</button>
+            </div>
+            <div id="qrReaderVerif"></div>
+          </div>
+
           <div class="row g-2 align-items-center mb-2">
             <div class="col-12 col-md-5">
               <div class="input-group">
                 <span class="input-group-text bg-white"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
-                <input type="text" id="verifSearchInput" class="form-control fw-semibold" placeholder="Cari SKU, Nama Barang, Ket..." oninput="renderVerifSelisihCards(true)">
+                <input type="text" id="verifSearchInput" class="form-control fw-semibold" placeholder="Scan / Cari SKU, Nama Barang, Ket..." oninput="renderVerifSelisihCards(true)" onkeyup="if(event.key==='Enter') handleQuickVerifBarcodeEnter()">
+                <button class="btn btn-danger fw-bold px-3" type="button" onclick="handleQuickVerifBarcodeEnter()">Buka</button>
               </div>
             </div>
             <div class="col-12 col-md-4">
@@ -1223,7 +1264,7 @@
               <p class="text-muted small mb-0">Scan barcode kamera atau ketik SKU/Nama Barang.</p>
             </div>
             <div class="d-flex gap-2">
-              <button type="button" class="btn btn-danger fw-bold btn-sm px-3 py-2" id="btnStartCamera" onclick="startBarcodeScanner()">
+              <button type="button" class="btn btn-danger fw-bold btn-sm px-3 py-2" id="btnStartCamera" onclick="startBarcodeScanner('SCAN')">
                 <i class="fa-solid fa-camera me-1"></i> Buka Kamera Scan
               </button>
               <button type="button" class="btn btn-secondary fw-bold btn-sm px-3 py-2" id="btnStopCamera" onclick="stopBarcodeScanner()" style="display: none;">
@@ -1520,7 +1561,7 @@
   </div>
 
   <!-- ========================================================================= -->
-  <!-- MODAL 2: POP-UP VERIFIKASI SELISIH & INPUT SO AWAL                        -->
+  <!-- MODAL 2: POP-UP VERIFIKASI SELISIH & INPUT SO AWAL (KAMERA KECIL INLINE)  -->
   <!-- ========================================================================= -->
   <div class="modal fade no-print" id="itemEditModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
@@ -1600,22 +1641,43 @@
             </div>
           </div>
 
+          <!-- KOTAK FOTO BUKTI DENGAN KAMERA KECIL INLINE + CADANGAN GALERI/HP -->
           <div class="photo-capture-box mb-3">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
               <div>
                 <span class="small fw-800 text-dark"><i class="fa-solid fa-camera text-warning me-1"></i> Foto Bukti Selisih (Kolom V)</span>
                 <span class="badge bg-danger ms-1" id="badgePhotoRequired" style="display: none;">WAJIB JIKA SELISIH</span>
               </div>
-              <div class="d-flex gap-1">
-                <label class="btn btn-sm btn-warning fw-bold mb-0" id="lblCameraCapture" for="inputPhotoCamera">
-                  <i class="fa-solid fa-camera me-1"></i> Ambil Foto
+              <div class="d-flex flex-wrap gap-1">
+                <button type="button" class="btn btn-sm btn-warning fw-bold" id="btnOpenInlineCam" onclick="startModalInlineCamera()">
+                  <i class="fa-solid fa-camera me-1"></i> Kamera Cepat
+                </button>
+                <label class="btn btn-sm btn-outline-secondary fw-bold mb-0" id="lblCameraCapture" for="inputPhotoCamera" title="Pilih dari Galeri atau Kamera Bawaan HP">
+                  <i class="fa-solid fa-image me-1"></i> Galeri / HP
                 </label>
-                <input type="file" id="inputPhotoCamera" accept="image/*" capture="environment" class="d-none" onchange="handleModalPhotoPicked(this)">
+                <input type="file" id="inputPhotoCamera" accept="image/*" class="d-none" onchange="handleModalPhotoPicked(this)">
                 <button type="button" class="btn btn-sm btn-outline-danger fw-bold" id="btnRemoveNewPhoto" onclick="clearPendingModalPhoto()" style="display: none;">
                   <i class="fa-solid fa-xmark"></i>
                 </button>
               </div>
             </div>
+
+            <!-- Kotak Kamera Kecil Live di Dalam Pop-up -->
+            <div id="modalInlineCamWrap" class="inline-cam-box" style="display: none;">
+              <video id="modalInlineCamVideo" autoplay playsinline muted></video>
+              <div class="d-flex gap-2 mt-2">
+                <button type="button" class="btn btn-danger btn-sm fw-bold flex-grow-1" onclick="captureModalInlinePhoto()">
+                  <i class="fa-solid fa-camera-retro me-1"></i> Jepret Foto
+                </button>
+                <button type="button" class="btn btn-outline-warning btn-sm fw-bold" id="btnToggleInlineTorch" onclick="toggleInlineCameraTorch()" style="display: none;" title="Nyalakan / Matikan Flash">
+                  <i class="fa-solid fa-bolt"></i>
+                </button>
+                <button type="button" class="btn btn-outline-light btn-sm fw-bold" onclick="stopModalInlineCamera()">
+                  Batal
+                </button>
+              </div>
+            </div>
+
             <div id="photoPreviewWrap" class="text-center" style="display: none;">
               <img id="modalPhotoPreviewImg" src="" alt="Foto Bukti" class="modal-photo-thumb" onclick="openPhotoZoomFromModal()">
               <div class="small text-muted mt-1" id="photoPreviewCaption">Sentuh foto untuk perbesar layar penuh</div>
@@ -1786,7 +1848,7 @@
     }
 
     // =========================================================================
-    // STATE GLOBAL PORTAL BARAT 3 (100% BEBAS BACKTICK & ANTI-LOADING MACET)
+    // STATE GLOBAL PORTAL BARAT 3
     // =========================================================================
     var SESSION_STORAGE_KEY = 'barat3_so_session_v2';
     var DRAFT_STORAGE_PREFIX = 'barat3_so_draft_';
@@ -1836,9 +1898,16 @@
     var loginWatchdogTimer = null;
     var toastInstance = null;
 
+    // State Kamera Barcode Scanner (Multi-Tab: SCAN & SELISIH)
     var html5QrScanner = null;
+    var activeScannerMode = '';
     var isScannerRunning = false;
     var isProcessingScan = false;
+
+    // State Kamera Kecil Inline di Dalam Pop-up Foto Bukti
+    var inlineCamStream = null;
+    var inlineCamTrack = null;
+    var inlineCamTorchOn = false;
 
     window.addEventListener('error', function(ev) {
       try {
@@ -1855,6 +1924,14 @@
     window.addEventListener('DOMContentLoaded', function() {
       toggleUploadGuide();
       initLoginScreen();
+
+      // Matikan kamera kecil otomatis setiap kali pop-up ditutup
+      var itemModalEl = document.getElementById('itemEditModal');
+      if (itemModalEl) {
+        itemModalEl.addEventListener('hidden.bs.modal', function() {
+          stopModalInlineCamera();
+        });
+      }
     });
 
     function getBsModal(id) {
@@ -2177,6 +2254,7 @@
     function executeLogout() {
       if (!confirm('Keluar dari akun Anda sekarang?')) return;
       stopBarcodeScanner();
+      stopModalInlineCamera();
       safeStorageRemove(SESSION_STORAGE_KEY);
       currentUser = { nama: '', rawNama: '', email: '', userKey: '', toko: '', role: '' };
       verifItemsCache = [];
@@ -2356,8 +2434,9 @@
     }
 
     function onTabSwitched(tabName) {
-      if (activeTabName === 'SCAN' && tabName !== 'SCAN') {
+      if (activeTabName !== tabName) {
         stopBarcodeScanner();
+        stopModalInlineCamera();
       }
       activeTabName = tabName;
       syncMobileNavActive(tabName);
@@ -3006,7 +3085,7 @@
     }
 
     // =========================================================================
-    // 7. MENU 3: VERIFIKASI SELISIH (CARD VIEW MOBILE + FOTO BUKTI LAZY LOAD)
+    // 7. MENU 3: VERIFIKASI SELISIH (SCAN BARCODE + CARD VIEW + FOTO LAZY LOAD)
     // =========================================================================
     function loadVerifSelisihItems() {
       var selectedFileId = getActiveStoreId();
@@ -3105,6 +3184,54 @@
       renderVerifSelisihCards(false);
     }
 
+    function getFilteredVerifItems() {
+      var query = (document.getElementById('verifSearchInput').value || '').trim().toLowerCase();
+      var selectedCat = (document.getElementById('verifCategoryFilter').value || '').trim().toUpperCase();
+
+      return verifItemsCache.filter(function(item) {
+        if (verifFilterMode === 'KS' && item.kl >= 0) return false;
+        if (verifFilterMode === 'LS' && item.kl <= 0) return false;
+        if (verifOnlyNoFl && item.flVerif && item.flVerif.trim() !== '') return false;
+        if (selectedCat) {
+          var itemCat = (item.kategori || 'TANPA KATEGORI').trim().toUpperCase();
+          if (itemCat !== selectedCat) return false;
+        }
+        if (query) {
+          var hay = (item.sku + ' ' + item.product + ' ' + item.kategori + ' ' + item.ket + ' ' + item.flVerif).toLowerCase();
+          if (hay.indexOf(query) === -1) return false;
+        }
+        return true;
+      });
+    }
+
+    function handleQuickVerifBarcodeEnter() {
+      var rawInput = (document.getElementById('verifSearchInput').value || '').trim();
+      if (!rawInput) return;
+      if (verifItemsCache.length === 0) {
+        showToast('Daftar selisih belum selesai dimuat atau kosong.', true);
+        return;
+      }
+
+      var cleanTarget = cleanSkuLocal(rawInput);
+      var noZeroTarget = cleanTarget.replace(/^0+/, '');
+      var exactMatch = verifItemsCache.find(function(it) {
+        var s = cleanSkuLocal(it.sku);
+        return s === cleanTarget || (noZeroTarget && s.replace(/^0+/, '') === noZeroTarget);
+      });
+
+      if (exactMatch) {
+        openItemModal('SELISIH', exactMatch);
+        return;
+      }
+
+      var filtered = getFilteredVerifItems();
+      if (filtered.length === 1) {
+        openItemModal('SELISIH', filtered[0]);
+      } else if (filtered.length === 0) {
+        showToast('SKU "' + rawInput + '" tidak ada di daftar selisih (stok sudah cocok atau tidak ditemukan).', true);
+      }
+    }
+
     function buildPhotoThumbnailHtml(item, menuMode) {
       if (item.fotoDriveId) {
         var thumbUrl = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(item.fotoDriveId) + '&sz=w220';
@@ -3125,24 +3252,7 @@
     function renderVerifSelisihCards(resetLimit) {
       if (resetLimit) verifVisibleLimit = 60;
       var container = document.getElementById('verifCardsContainer');
-      var query = (document.getElementById('verifSearchInput').value || '').trim().toLowerCase();
-      var selectedCat = (document.getElementById('verifCategoryFilter').value || '').trim().toUpperCase();
-
-      var filtered = verifItemsCache.filter(function(item) {
-        if (verifFilterMode === 'KS' && item.kl >= 0) return false;
-        if (verifFilterMode === 'LS' && item.kl <= 0) return false;
-        if (verifOnlyNoFl && item.flVerif && item.flVerif.trim() !== '') return false;
-        if (selectedCat) {
-          var itemCat = (item.kategori || 'TANPA KATEGORI').trim().toUpperCase();
-          if (itemCat !== selectedCat) return false;
-        }
-        if (query) {
-          var hay = (item.sku + ' ' + item.product + ' ' + item.kategori + ' ' + item.ket + ' ' + item.flVerif).toLowerCase();
-          if (hay.indexOf(query) === -1) return false;
-        }
-        return true;
-      });
-
+      var filtered = getFilteredVerifItems();
       var showingEl = document.getElementById('verifShowingInfo');
       var loadMoreWrap = document.getElementById('verifLoadMoreWrap');
 
@@ -3404,85 +3514,121 @@
     }
 
     // =========================================================================
-    // 9. KAMERA BARCODE SCANNER LIVE (Html5Qrcode — OPTIMAL DI GITHUB PAGES)
+    // 9. KAMERA BARCODE SCANNER LIVE (MENDUKUNG SCAN SO AWAL & VERIFIKASI SELISIH)
     // =========================================================================
-    function startBarcodeScanner() {
-      var statusEl = document.getElementById('cameraStatusMsg');
-      var wrapper = document.getElementById('barcodeReaderWrapper');
-      var btnStart = document.getElementById('btnStartCamera');
-      var btnStop = document.getElementById('btnStopCamera');
-
-      if (typeof Html5Qrcode === 'undefined') {
-        statusEl.innerHTML = '<span class="text-danger">Library kamera belum siap. Muat ulang halaman lalu coba lagi.</span>';
-        return;
-      }
-
-      if (allMasterItemsCache.length === 0) loadAllMasterItems();
-
-      wrapper.style.display = 'block';
-      btnStart.style.display = 'none';
-      btnStop.style.display = 'inline-block';
-      statusEl.innerHTML = '<span class="text-primary"><i class="fa-solid fa-spinner fa-spin me-1"></i> Membuka kamera belakang...</span>';
-
-      try {
-        if (!html5QrScanner) html5QrScanner = new Html5Qrcode('qrReader');
-        isProcessingScan = false;
-
-        html5QrScanner.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 250, height: 140 }, aspectRatio: 1.5 },
-          onBarcodeScanSuccess,
-          function() {}
-        ).then(function() {
-          isScannerRunning = true;
-          statusEl.innerHTML = '<span class="text-success"><i class="fa-solid fa-camera me-1"></i> Kamera aktif! Arahkan ke Barcode produk.</span>';
-        }).catch(function(err) {
-          isScannerRunning = false;
-          wrapper.style.display = 'none';
-          btnStart.style.display = 'inline-block';
-          btnStop.style.display = 'none';
-
-          var isGitHubHost = (window.location && window.location.hostname && window.location.hostname.indexOf('github.io') !== -1);
-          var hintHtml = isGitHubHost
-            ? 'Pastikan izin kamera diizinkan pada pop-up Chrome (atau cek ikon gembok/setelan di sebelah alamat situs).'
-            : (globalWebAppUrl
-                ? ('Jika portal dibuka dari Google Sites, buka link langsung di Chrome: <div class="mt-2"><a href="' + escapeHtml(globalWebAppUrl) + '" target="_blank" rel="noopener" class="btn btn-sm btn-danger fw-bold"><i class="fa-solid fa-up-right-from-square me-1"></i> Buka Mode Penuh</a></div>')
-                : 'Pastikan izin kamera di browser sudah diaktifkan.');
-
-          statusEl.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">' +
-            '<i class="fa-solid fa-triangle-exclamation me-1"></i> ' +
-            '<strong>Gagal membuka kamera</strong> (' + escapeHtml(err) + '). ' + hintHtml +
-            '</div>';
+    function resetScannerUiAll(clearMsg) {
+      ['barcodeReaderWrapper', 'verifBarcodeReaderWrapper'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+      ['btnStartCamera', 'btnStartVerifCamera'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = 'inline-block';
+      });
+      ['btnStopCamera', 'btnStopVerifCamera'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+      if (clearMsg) {
+        ['cameraStatusMsg', 'verifCameraStatusMsg'].forEach(function(id) {
+          var el = document.getElementById(id);
+          if (el) el.innerHTML = '';
         });
-      } catch (e) {
-        statusEl.innerHTML = '<span class="text-danger">Error kamera: ' + escapeHtml(e.message) + '</span>';
       }
     }
 
-    function stopBarcodeScanner() {
-      var wrapper = document.getElementById('barcodeReaderWrapper');
-      var btnStart = document.getElementById('btnStartCamera');
-      var btnStop = document.getElementById('btnStopCamera');
-      var statusEl = document.getElementById('cameraStatusMsg');
+    function stopBarcodeScannerAsync(clearMsg) {
+      return new Promise(function(resolve) {
+        if (html5QrScanner && isScannerRunning) {
+          var oldInstance = html5QrScanner;
+          isScannerRunning = false;
+          html5QrScanner = null;
+          oldInstance.stop().then(function() {
+            try { oldInstance.clear(); } catch (e) {}
+            resetScannerUiAll(clearMsg);
+            resolve();
+          }).catch(function() {
+            try { oldInstance.clear(); } catch (e) {}
+            resetScannerUiAll(clearMsg);
+            resolve();
+          });
+        } else {
+          if (html5QrScanner) {
+            try { html5QrScanner.clear(); } catch (e) {}
+            html5QrScanner = null;
+          }
+          isScannerRunning = false;
+          resetScannerUiAll(clearMsg);
+          resolve();
+        }
+      });
+    }
 
-      if (html5QrScanner && isScannerRunning) {
-        html5QrScanner.stop().then(function() {
-          isScannerRunning = false;
-          wrapper.style.display = 'none';
-          btnStart.style.display = 'inline-block';
-          btnStop.style.display = 'none';
-          if (statusEl) statusEl.innerHTML = '';
-        }).catch(function() {
-          isScannerRunning = false;
-          wrapper.style.display = 'none';
-          btnStart.style.display = 'inline-block';
-          btnStop.style.display = 'none';
-        });
-      } else {
-        if (wrapper) wrapper.style.display = 'none';
-        if (btnStart) btnStart.style.display = 'inline-block';
-        if (btnStop) btnStop.style.display = 'none';
+    function stopBarcodeScanner() {
+      stopBarcodeScannerAsync(true);
+    }
+
+    function startBarcodeScanner(mode) {
+      var scanMode = (mode === 'SELISIH') ? 'SELISIH' : 'SCAN';
+      var isVerif = (scanMode === 'SELISIH');
+      var readerId = isVerif ? 'qrReaderVerif' : 'qrReader';
+      var wrapper = document.getElementById(isVerif ? 'verifBarcodeReaderWrapper' : 'barcodeReaderWrapper');
+      var btnStart = document.getElementById(isVerif ? 'btnStartVerifCamera' : 'btnStartCamera');
+      var btnStop = document.getElementById(isVerif ? 'btnStopVerifCamera' : 'btnStopCamera');
+      var statusEl = document.getElementById(isVerif ? 'verifCameraStatusMsg' : 'cameraStatusMsg');
+
+      if (typeof Html5Qrcode === 'undefined') {
+        if (statusEl) statusEl.innerHTML = '<span class="text-danger">Library kamera belum siap. Muat ulang halaman lalu coba lagi.</span>';
+        return;
       }
+
+      if (isVerif && verifItemsCache.length === 0) loadVerifSelisihItems();
+      if (!isVerif && allMasterItemsCache.length === 0) loadAllMasterItems();
+
+      stopModalInlineCamera();
+      stopBarcodeScannerAsync(true).then(function() {
+        activeScannerMode = scanMode;
+        isProcessingScan = false;
+
+        if (wrapper) wrapper.style.display = 'block';
+        if (btnStart) btnStart.style.display = 'none';
+        if (btnStop) btnStop.style.display = 'inline-block';
+        if (statusEl) statusEl.innerHTML = '<span class="text-primary"><i class="fa-solid fa-spinner fa-spin me-1"></i> Membuka kamera belakang...</span>';
+
+        try {
+          html5QrScanner = new Html5Qrcode(readerId);
+          html5QrScanner.start(
+            { facingMode: 'environment' },
+            { fps: 10, qrbox: { width: 250, height: 140 }, aspectRatio: 1.5 },
+            onBarcodeScanSuccess,
+            function() {}
+          ).then(function() {
+            isScannerRunning = true;
+            if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="fa-solid fa-camera me-1"></i> Kamera aktif! Arahkan ke Barcode produk.</span>';
+          }).catch(function(err) {
+            isScannerRunning = false;
+            html5QrScanner = null;
+            resetScannerUiAll(false);
+
+            var isGitHubHost = (window.location && window.location.hostname && window.location.hostname.indexOf('github.io') !== -1);
+            var hintHtml = isGitHubHost
+              ? 'Pastikan izin kamera diizinkan pada pop-up Chrome (atau cek ikon setelan di sebelah alamat situs).'
+              : (globalWebAppUrl
+                  ? ('Jika portal dibuka dari Google Sites, buka link langsung di Chrome: <div class="mt-2"><a href="' + escapeHtml(globalWebAppUrl) + '" target="_blank" rel="noopener" class="btn btn-sm btn-danger fw-bold"><i class="fa-solid fa-up-right-from-square me-1"></i> Buka Mode Penuh</a></div>')
+                  : 'Pastikan izin kamera di browser sudah diaktifkan.');
+
+            if (statusEl) {
+              statusEl.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">' +
+                '<i class="fa-solid fa-triangle-exclamation me-1"></i> ' +
+                '<strong>Gagal membuka kamera</strong> (' + escapeHtml(err) + '). ' + hintHtml +
+                '</div>';
+            }
+          });
+        } catch (e) {
+          resetScannerUiAll(false);
+          if (statusEl) statusEl.innerHTML = '<span class="text-danger">Error kamera: ' + escapeHtml(e.message) + '</span>';
+        }
+      });
     }
 
     function onBarcodeScanSuccess(decodedText) {
@@ -3490,27 +3636,196 @@
       isProcessingScan = true;
 
       var scannedSku = cleanSkuLocal(decodedText);
-      var searchInput = document.getElementById('scanSearchInput');
-      if (searchInput) {
-        searchInput.value = scannedSku;
-        renderScanSoCards(true);
-      }
+      var noZeroSku = scannedSku.replace(/^0+/, '');
+      var modeNow = activeScannerMode;
 
       stopBarcodeScanner();
 
-      var noZeroSku = scannedSku.replace(/^0+/, '');
-      var matched = allMasterItemsCache.find(function(it) {
-        var s = cleanSkuLocal(it.sku);
-        return s === scannedSku || (noZeroSku && s.replace(/^0+/, '') === noZeroSku);
-      });
-
-      if (matched) {
-        showToast('Barcode terbaca: ' + matched.product, false);
-        openItemModal('SO_AWAL', matched);
+      if (modeNow === 'SELISIH') {
+        var verifInput = document.getElementById('verifSearchInput');
+        if (verifInput) {
+          verifInput.value = scannedSku;
+          renderVerifSelisihCards(true);
+        }
+        var matchedVerif = verifItemsCache.find(function(it) {
+          var s = cleanSkuLocal(it.sku);
+          return s === scannedSku || (noZeroSku && s.replace(/^0+/, '') === noZeroSku);
+        });
+        if (matchedVerif) {
+          showToast('Barang selisih ditemukan: ' + matchedVerif.product, false);
+          openItemModal('SELISIH', matchedVerif);
+        } else {
+          showToast('SKU ' + scannedSku + ' tidak masuk daftar selisih (stok sudah cocok atau tidak ditemukan).', true);
+        }
       } else {
-        showToast('Barcode ' + scannedSku + ' tidak ditemukan di Sheet Master!', true);
+        var searchInput = document.getElementById('scanSearchInput');
+        if (searchInput) {
+          searchInput.value = scannedSku;
+          renderScanSoCards(true);
+        }
+        var matchedScan = allMasterItemsCache.find(function(it) {
+          var s = cleanSkuLocal(it.sku);
+          return s === scannedSku || (noZeroSku && s.replace(/^0+/, '') === noZeroSku);
+        });
+        if (matchedScan) {
+          showToast('Barcode terbaca: ' + matchedScan.product, false);
+          openItemModal('SO_AWAL', matchedScan);
+        } else {
+          showToast('Barcode ' + scannedSku + ' tidak ditemukan di Sheet Master!', true);
+        }
       }
+
       setTimeout(function() { isProcessingScan = false; }, 1200);
+    }
+
+    // =========================================================================
+    // 9B. KAMERA KECIL LIVE DI DALAM POP-UP FOTO BUKTI (INLINE CAMERA)
+    // =========================================================================
+    function startModalInlineCamera() {
+      var statusEl = document.getElementById('photoStatusText');
+      var camWrap = document.getElementById('modalInlineCamWrap');
+      var videoEl = document.getElementById('modalInlineCamVideo');
+      var previewWrap = document.getElementById('photoPreviewWrap');
+      var torchBtn = document.getElementById('btnToggleInlineTorch');
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (statusEl) statusEl.innerHTML = '<span class="text-danger fw-semibold">Browser ini tidak mendukung kamera kecil. Gunakan tombol <strong>Galeri / HP</strong> di sebelahnya.</span>';
+        return;
+      }
+
+      stopModalInlineCamera();
+      stopBarcodeScannerAsync(false).then(function() {
+        if (statusEl) statusEl.innerHTML = '<span class="text-primary"><i class="fa-solid fa-spinner fa-spin me-1"></i> Membuka kamera kecil...</span>';
+
+        navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        }).then(function(stream) {
+          inlineCamStream = stream;
+          var tracks = stream.getVideoTracks();
+          inlineCamTrack = (tracks && tracks.length > 0) ? tracks[0] : null;
+          inlineCamTorchOn = false;
+
+          if (videoEl) {
+            videoEl.srcObject = stream;
+            var playProm = videoEl.play();
+            if (playProm && typeof playProm.catch === 'function') playProm.catch(function() {});
+          }
+          if (previewWrap) previewWrap.style.display = 'none';
+          if (camWrap) camWrap.style.display = 'block';
+
+          if (torchBtn) {
+            torchBtn.style.display = 'none';
+            torchBtn.className = 'btn btn-outline-warning btn-sm fw-bold';
+            try {
+              if (inlineCamTrack && typeof inlineCamTrack.getCapabilities === 'function') {
+                var caps = inlineCamTrack.getCapabilities();
+                if (caps && caps.torch) {
+                  torchBtn.style.display = 'inline-block';
+                }
+              }
+            } catch (e) {}
+          }
+
+          if (statusEl) statusEl.innerHTML = '<span class="text-success fw-semibold"><i class="fa-solid fa-camera me-1"></i> Kamera aktif — arahkan ke barang lalu tekan <strong>Jepret Foto</strong>.</span>';
+        }).catch(function(err) {
+          stopModalInlineCamera();
+          if (statusEl) {
+            statusEl.innerHTML = '<span class="text-danger fw-semibold"><i class="fa-solid fa-triangle-exclamation me-1"></i> Kamera kecil gagal dibuka (' + escapeHtml(err && err.message ? err.message : err) + '). Silakan pakai tombol <strong>Galeri / HP</strong>.</span>';
+          }
+        });
+      });
+    }
+
+    function toggleInlineCameraTorch() {
+      if (!inlineCamTrack || typeof inlineCamTrack.applyConstraints !== 'function') return;
+      var torchBtn = document.getElementById('btnToggleInlineTorch');
+      var nextState = !inlineCamTorchOn;
+      inlineCamTrack.applyConstraints({
+        advanced: [{ torch: nextState }]
+      }).then(function() {
+        inlineCamTorchOn = nextState;
+        if (torchBtn) {
+          torchBtn.className = inlineCamTorchOn
+            ? 'btn btn-warning text-dark btn-sm fw-bold'
+            : 'btn btn-outline-warning btn-sm fw-bold';
+        }
+      }).catch(function() {
+        showToast('Flash tidak didukung pada kamera browser ini.', true);
+      });
+    }
+
+    function captureModalInlinePhoto() {
+      var videoEl = document.getElementById('modalInlineCamVideo');
+      var statusEl = document.getElementById('photoStatusText');
+
+      if (!videoEl || !videoEl.videoWidth || !videoEl.videoHeight) {
+        showToast('Kamera masih memuat gambar, tunggu 1 detik lalu tekan Jepret lagi.', true);
+        return;
+      }
+
+      var maxDim = 1024;
+      var w = videoEl.videoWidth;
+      var h = videoEl.videoHeight;
+      if (w > maxDim || h > maxDim) {
+        if (w > h) { h = Math.round(h * (maxDim / w)); w = maxDim; }
+        else { w = Math.round(w * (maxDim / h)); h = maxDim; }
+      }
+
+      var canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(videoEl, 0, 0, w, h);
+
+      pendingModalPhotoBase64 = canvas.toDataURL('image/jpeg', 0.72);
+      currentModalZoomUrl = pendingModalPhotoBase64;
+      currentModalDriveViewUrl = '';
+
+      stopModalInlineCamera();
+
+      document.getElementById('modalPhotoPreviewImg').src = pendingModalPhotoBase64;
+      document.getElementById('photoPreviewCaption').innerText = 'Foto baru siap diunggah saat klik Simpan • Sentuh untuk zoom';
+      document.getElementById('photoPreviewWrap').style.display = 'block';
+      document.getElementById('btnRemoveNewPhoto').style.display = 'inline-block';
+
+      var kbSize = Math.round((pendingModalPhotoBase64.length * 3 / 4) / 1024);
+      if (statusEl) {
+        statusEl.innerHTML = '<span class="text-success fw-bold"><i class="fa-solid fa-check me-1"></i> Foto berhasil dijepret &amp; siap diunggah (' + kbSize + ' KB)</span>';
+      }
+    }
+
+    function stopModalInlineCamera() {
+      if (inlineCamStream) {
+        try {
+          inlineCamStream.getTracks().forEach(function(t) { t.stop(); });
+        } catch (e) {}
+        inlineCamStream = null;
+      }
+      inlineCamTrack = null;
+      inlineCamTorchOn = false;
+
+      var videoEl = document.getElementById('modalInlineCamVideo');
+      if (videoEl) videoEl.srcObject = null;
+
+      var camWrap = document.getElementById('modalInlineCamWrap');
+      if (camWrap) camWrap.style.display = 'none';
+
+      var torchBtn = document.getElementById('btnToggleInlineTorch');
+      if (torchBtn) {
+        torchBtn.style.display = 'none';
+        torchBtn.className = 'btn btn-outline-warning btn-sm fw-bold';
+      }
+
+      var imgEl = document.getElementById('modalPhotoPreviewImg');
+      var previewWrap = document.getElementById('photoPreviewWrap');
+      if (imgEl && previewWrap && imgEl.getAttribute('src')) {
+        previewWrap.style.display = 'block';
+      }
     }
 
     // =========================================================================
@@ -3635,6 +3950,7 @@
     }
 
     function openItemModal(menuMode, item) {
+      stopModalInlineCamera();
       currentModalMode = menuMode;
       currentModalItem = item;
       pendingModalPhotoBase64 = '';
@@ -3642,6 +3958,7 @@
       currentModalDriveViewUrl = '';
       lastFailedSavePayload = null;
       document.getElementById('inputPhotoCamera').value = '';
+      document.getElementById('modalPhotoPreviewImg').removeAttribute('src');
       document.getElementById('btnRemoveNewPhoto').style.display = 'none';
 
       var modeBadge = document.getElementById('modalModeBadge');
@@ -3739,6 +4056,7 @@
 
       var lockAlert = document.getElementById('modalLockAlert');
       var btnSave = document.getElementById('btnModalSaveItem');
+      var btnInlineCam = document.getElementById('btnOpenInlineCam');
       var lblCam = document.getElementById('lblCameraCapture');
       var editableIds = ['inputEditFisik', 'inputEditLabelTag', 'inputEditRtr', 'inputEditFlVerif', 'inputEditPendamping', 'inputEditKet', 'inputPhotoCamera'];
 
@@ -3759,6 +4077,7 @@
         lockAlert.style.display = 'block';
         lockAlert.innerHTML = '<i class="fa-solid fa-lock me-1"></i> ' + blockReason;
         btnSave.style.display = 'none';
+        if (btnInlineCam) btnInlineCam.style.display = 'none';
         if (lblCam) lblCam.style.display = 'none';
         editableIds.forEach(function(id) { var el = document.getElementById(id); if (el) el.disabled = true; });
       } else {
@@ -3766,6 +4085,7 @@
         btnSave.style.display = 'inline-block';
         btnSave.disabled = false;
         btnSave.innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i> Simpan & Catat Log';
+        if (btnInlineCam) btnInlineCam.style.display = 'inline-block';
         if (lblCam) lblCam.style.display = 'inline-block';
         editableIds.forEach(function(id) { var el = document.getElementById(id); if (el) el.disabled = false; });
       }
@@ -3784,6 +4104,7 @@
 
     function handleModalPhotoPicked(inputEl) {
       if (!inputEl.files || inputEl.files.length === 0) return;
+      stopModalInlineCamera();
       var file = inputEl.files[0];
       var statusEl = document.getElementById('photoStatusText');
       statusEl.innerHTML = '<span class="text-primary"><i class="fa-solid fa-spinner fa-spin me-1"></i> Mengompres foto agar cepat diunggah...</span>';
@@ -3828,6 +4149,7 @@
       if (currentModalItem && currentModalItem.fotoDriveId) {
         showModalExistingPhoto(currentModalItem.fotoDriveId);
       } else {
+        document.getElementById('modalPhotoPreviewImg').removeAttribute('src');
         document.getElementById('photoPreviewWrap').style.display = 'none';
         document.getElementById('photoStatusText').innerText = 'Foto dibatalkan.';
       }
@@ -3843,6 +4165,7 @@
 
     function saveModalItemChanges(isRetry) {
       if (!currentModalItem && !isRetry) return;
+      stopModalInlineCamera();
 
       var feedback = document.getElementById('modalSaveFeedback');
       var btn = document.getElementById('btnModalSaveItem');
@@ -3867,7 +4190,7 @@
         var hasAnyPhoto = !!(pendingModalPhotoBase64 || currentModalItem.fotoDriveId || currentModalItem.fotoBukti);
 
         if (currentModalMode === 'SELISIH' && predictedSelisih !== 0 && !hasAnyPhoto) {
-          feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0"><i class="fa-solid fa-camera me-1"></i> <strong>Foto Bukti Wajib Dilampirkan</strong> untuk barang yang masih berselisih! Tekan tombol <strong>"Ambil Foto"</strong> di kotak kuning atas.</div>';
+          feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0"><i class="fa-solid fa-camera me-1"></i> <strong>Foto Bukti Wajib Dilampirkan</strong> untuk barang yang masih berselisih! Tekan tombol <strong>"Kamera Cepat"</strong> di kotak kuning atas.</div>';
           return;
         }
 
