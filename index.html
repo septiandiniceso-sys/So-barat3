@@ -542,7 +542,7 @@
         </span>
       </div>
       <h4 class="fw-bold text-dark mb-1">BARAT 3 PORTAL</h4>
-      <p class="text-muted small mb-3">Executive Stock Opname &amp; Sync Engine</p>
+      <p class="text-muted small mb-3">Executive Stock Opname &amp; Hybrid Sync Engine</p>
 
       <div id="loginLoader" class="my-3">
         <div class="spinner-border text-danger spinner-border-sm me-2"></div>
@@ -1417,7 +1417,7 @@
                   <div class="bg-primary text-white p-3 rounded-circle"><i class="fa-solid fa-users fa-lg"></i></div>
                   <div>
                     <h5 class="fw-bold mb-0">Daftar Nama Karyawan SO</h5>
-                    <p class="text-muted small mb-0">Otomatis mengisi dropdown <code>FL VERIF</code> &amp; <code>PENDAMPING</code></p>
+                    <p class="text-muted small mb-0">Otomatis mengisi dropdown <code>FL VERIF</code></p>
                   </div>
                 </div>
                 <span class="badge bg-light text-dark border px-3 py-2" id="empLastUpdateBadge">Belum ada data</span>
@@ -1480,7 +1480,7 @@
         <div class="modal-body p-3 p-md-4 bg-light">
           <div class="alert alert-info py-2 px-3 small mb-3">
             <i class="fa-solid fa-shield-halved me-1"></i>
-            Perubahan di panel ini langsung mengunci akses HP seluruh SPV &amp; Kapten secara <strong>real-time</strong>.
+            Perubahan di panel ini langsung mengunci akses HP seluruh SPV &amp; Kapten secara <strong>real-time</strong> dan menyinkronkan data toko ke Supabase.
           </div>
 
           <div class="card border-danger-subtle shadow-sm rounded-4 p-3 mb-3">
@@ -1720,7 +1720,7 @@
               </div>
 
               <div class="col-12 col-md-6">
-                <label class="form-label small fw-bold mb-1">PENDAMPING (Dropdown Karyawan)</label>
+                <label class="form-label small fw-bold mb-1">PENDAMPING (SPV / Kapten / AM)</label>
                 <select id="inputEditPendamping" class="form-select fw-semibold" onchange="saveModalDraftLocal()">
                   <option value="">-- Pilih Pendamping --</option>
                 </select>
@@ -1784,140 +1784,257 @@
     </div>
   </div>
 
+  <!-- === AKHIR BAGIAN 1 (TEMPEL BAGIAN 2 TEPAT DI BAWAH BARIS INI) === -->
   <script>
-    // ============================================================================
-// MESIN HYBRID SUPABASE (BARAT 3 PORTAL v2.0 — LOADING < 0.5 DETIK)
-// ============================================================================
-const SB_URL = 'https://omlbquuhbbuxqrvmicuk.supabase.co';
-const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9tbGJxdXVoYmJ1eHFydm1pY3VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUyMzMyMDUsImV4cCI6MjExMDgwOTIwNX0.1kyw-_Ld6t4Tz4YiJujsJoTmiLnivreB0-ikLz5B_C8';
+    // =========================================================================
+    // MESIN HYBRID SUPABASE (BARAT 3 PORTAL v2.1 — LOADING < 0.5 DETIK)
+    // =========================================================================
+    var SB_URL = 'https://omlbquuhbbuxqrvmicuk.supabase.co';
+    var SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9tbGJxdXVoYmJ1eHFydm1pY3VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUyMzMyMDUsImV4cCI6MjExMDgwOTIwNX0.1kyw-_Ld6t4Tz4YiJujsJoTmiLnivreB0-ikLz5B_C8';
 
-async function callSupabaseRpc(fnName, paramsObj) {
-  const res = await fetch(`${SB_URL}/rest/v1/rpc/${fnName}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SB_ANON_KEY,
-      'Authorization': `Bearer ${SB_ANON_KEY}`
-    },
-    body: JSON.stringify(paramsObj || {})
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Supabase RPC ${fnName} gagal (${res.status}): ${errText}`);
-  }
-  return await res.json();
-}
-
-/**
- * Ambil 3.500+ SKU Master langsung dari Supabase (< 0.5 detik)
- * Jika toko belum pernah disinkron ke Supabase, otomatis fallback ke Google Sheets.
- */
-async function loadMasterItemsFast(periodId, storeId, mode) {
-  try {
-    const rows = await callSupabaseRpc('rpc_get_master_items', {
-      p_period_id: periodId,
-      p_store_id: storeId
-    });
-    if (Array.isArray(rows) && rows.length > 0) {
-      let filtered = rows;
-      if (mode === 'SELISIH') {
-        filtered = rows.filter(r => Number(r.kl || 0) !== 0);
+    function extractDriveFileIdLocal(urlStr) {
+      if (!urlStr) return '';
+      var s = urlStr.toString().trim();
+      if (s.toLowerCase().indexOf('drive.google.com') === -1 && s.toLowerCase().indexOf('googleusercontent.com') === -1) {
+        return '';
       }
-      return {
-        source: 'SUPABASE',
-        items: filtered.map(r => ({
-          rowIndex: r.sheet_row || 0,
-          sku: r.sku || '',
-          product: r.product || '',
-          stockQty: String(r.stock_qty ?? 0),
-          fisik: r.fisik ?? '',
-          qtyUpd: String(r.qty_upd ?? 0),
-          jam: r.jam || '-',
-          labelTag: (r.label_tag || '').toUpperCase(),
-          gudang: String(r.gudang ?? 0),
-          rtr: r.rtr ?? '',
-          kl: Number(r.kl || 0),
-          klDisp: String(r.kl ?? 0),
-          flVerif: r.fl_verif || '',
-          pendamping: r.pendamping || '',
-          ket: r.ket || '',
-          kategori: r.kategori || '',
-          harga: String(r.harga ?? 0),
-          total: 'Rp ' + Math.round(Number(r.total || 0)).toLocaleString('id-ID'),
-          store: r.store || '',
-          email: r.email || '',
-          fotoBukti: r.foto_bukti_selisih || ''
-        }))
+      var m = s.match(/\/d\/([-\w]{20,})/);
+      if (m) return m[1];
+      m = s.match(/[?&]id=([-\w]{20,})/);
+      return m ? m[1] : '';
+    }
+
+    function getCurrentJakartaYearMonth() {
+      try {
+        var parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Jakarta',
+          year: 'numeric',
+          month: '2-digit'
+        }).formatToParts(new Date());
+        var y = '', m = '';
+        parts.forEach(function(p) {
+          if (p.type === 'year') y = p.value;
+          if (p.type === 'month') m = p.value;
+        });
+        if (y && m) return y + '-' + m;
+      } catch (e) {}
+      var d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    }
+
+    /**
+     * Ambil nama folder periode yang bersih (cocok 100% dengan period_id di Supabase)
+     */
+    function getActivePeriodNameClean() {
+      var clean = function(txt) {
+        return (txt || '').toString().replace(/\s*\[🔒\]\s*/g, '').trim();
       };
+      var isGenericRoot = function(txt) {
+        var low = (txt || '').toLowerCase();
+        return !txt || low.indexOf('folder utama') !== -1 || low.indexOf('folder default') !== -1 || low.indexOf('memuat') !== -1 || txt.indexOf('📁') === 0;
+      };
+
+      if (currentSlotAccess && currentSlotAccess.lockedToSlot && currentSlotAccess.folderName) {
+        var slotName = clean(currentSlotAccess.folderName);
+        if (!isGenericRoot(slotName)) return slotName;
+      }
+
+      var fid = getActiveFolderId();
+      if (fid && Array.isArray(cachedMonthFolders) && cachedMonthFolders.length > 0) {
+        var foundF = cachedMonthFolders.find(function(f) { return f.id === fid; });
+        if (foundF && foundF.name) {
+          var cname = clean(foundF.name);
+          if (!isGenericRoot(cname)) return cname;
+        }
+      }
+
+      var selIds = ['verifFolderSelector', 'scanFolderSelector', 'dashFolderSelector', 'uploadFolderSelector'];
+      for (var i = 0; i < selIds.length; i++) {
+        var sel = document.getElementById(selIds[i]);
+        if (sel && sel.selectedIndex >= 0 && sel.options[sel.selectedIndex]) {
+          var optTxt = clean(sel.options[sel.selectedIndex].text);
+          if (!isGenericRoot(optTxt)) return optTxt;
+        }
+      }
+
+      return getCurrentJakartaYearMonth();
     }
-  } catch (e) {
-    console.warn('Fallback ke Google Sheets:', e.message);
-  }
-  return { source: 'SHEETS_FALLBACK', items: null };
-}
-function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
-  var sel = document.getElementById(selectId);
-  if (!sel) return;
-  sel.innerHTML = '';
 
-  var optDefault = document.createElement('option');
-  optDefault.value = '';
-  optDefault.textContent = placeholderText || '-- Pilih Pendamping --';
-  sel.appendChild(optDefault);
-
-  var names = [];
-  var seen = {};
-  var addName = function(n) {
-    var clean = (n || '').toString()
-      .replace(/^(SPV|Kapten)\s*-\s*/i, '')
-      .replace(/\s*\([^)]*\)\s*$/, '')
-      .trim();
-    if (!clean || clean.toLowerCase().indexOf('pilih') !== -1) return;
-    var key = clean.toLowerCase();
-    if (!seen[key]) {
-      seen[key] = true;
-      names.push(clean);
+    async function callSupabaseRpc(fnName, paramsObj) {
+      var res = await fetch(SB_URL + '/rest/v1/rpc/' + fnName, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SB_ANON_KEY,
+          'Authorization': 'Bearer ' + SB_ANON_KEY
+        },
+        body: JSON.stringify(paramsObj || {})
+      });
+      if (!res.ok) {
+        var errText = await res.text();
+        throw new Error('Supabase RPC ' + fnName + ' gagal (' + res.status + '): ' + errText);
+      }
+      return await res.json();
     }
-  };
 
-  var loginSel = document.getElementById('loginUserSelect') ||
-                 document.getElementById('spvSelect') ||
-                 document.querySelector('#loginScreen select, #loginOverlay select');
-  if (loginSel && loginSel.options) {
-    for (var i = 0; i < loginSel.options.length; i++) {
-      var opt = loginSel.options[i];
-      if (opt.value) addName(opt.textContent);
+    /**
+     * Ambil 3.500+ SKU Master langsung dari Supabase (< 0.5 detik)
+     * Jika toko belum pernah disinkron ke Supabase, otomatis fallback ke Google Sheets.
+     */
+    async function loadMasterItemsFast(periodId, storeId, mode) {
+      if (!storeId) return { source: 'SHEETS_FALLBACK', items: null };
+
+      try {
+        var targetPeriod = (periodId || getActivePeriodNameClean() || getCurrentJakartaYearMonth()).toString().trim();
+        var rows = await callSupabaseRpc('rpc_get_master_items', {
+          p_period_id: targetPeriod,
+          p_store_id: storeId
+        });
+
+        // Coba cadangan yyyy-MM jika toko sebelumnya disinkron dengan format tanggal default
+        if (!Array.isArray(rows) || rows.length === 0) {
+          var ymFallback = getCurrentJakartaYearMonth();
+          if (targetPeriod !== ymFallback) {
+            rows = await callSupabaseRpc('rpc_get_master_items', {
+              p_period_id: ymFallback,
+              p_store_id: storeId
+            });
+          }
+        }
+
+        if (Array.isArray(rows) && rows.length > 0) {
+          var mappedAll = rows.map(function(r) {
+            var klNum = Number(r.kl || 0);
+            var hargaNum = Math.round(Number(r.harga || 0));
+            var totalNum = Math.round(Number(r.total || 0));
+            var fotoRaw = (r.foto_bukti_selisih || '').toString().trim();
+            var isFisikEmpty = (r.fisik === null || r.fisik === undefined || r.fisik === '');
+            var isRtrEmpty = (r.rtr === null || r.rtr === undefined || r.rtr === '');
+
+            return {
+              rowIndex: Number(r.sheet_row || 0),
+              sku: cleanSkuLocal(r.sku || ''),
+              product: (r.product || '').toString().trim(),
+              stockQty: String(r.stock_qty !== null && r.stock_qty !== undefined ? r.stock_qty : 0),
+              fisik: isFisikEmpty ? '' : r.fisik,
+              qtyUpd: String(r.qty_upd !== null && r.qty_upd !== undefined ? r.qty_upd : (r.stock_qty !== null && r.stock_qty !== undefined ? r.stock_qty : 0)),
+              jam: (r.jam || '-').toString().trim() || '-',
+              labelTag: (r.label_tag || '').toString().trim().toUpperCase(),
+              gudang: String(r.gudang !== null && r.gudang !== undefined ? r.gudang : 0),
+              rtr: isRtrEmpty ? '' : r.rtr,
+              kl: klNum,
+              klDisp: String(klNum),
+              flVerif: (r.fl_verif || '').toString().trim(),
+              pendamping: (r.pendamping || '').toString().trim(),
+              ket: (r.ket || '').toString().trim(),
+              kategori: (r.kategori || '').toString().trim(),
+              harga: 'Rp ' + hargaNum.toLocaleString('id-ID'),
+              total: totalNum < 0
+                ? ('Rp (' + Math.abs(totalNum).toLocaleString('id-ID') + ')')
+                : ('Rp ' + totalNum.toLocaleString('id-ID')),
+              store: (r.store || '').toString().trim(),
+              email: (r.email || '').toString().trim(),
+              fotoBukti: fotoRaw,
+              fotoDriveId: extractDriveFileIdLocal(fotoRaw),
+              editCount: Number(r.edit_count || 0),
+              lastEditBy: (r.last_edit_by || '').toString().trim(),
+              lastEditTime: (r.last_edit_time || '').toString().trim(),
+              editHistory: Array.isArray(r.edit_history) ? r.edit_history : []
+            };
+          });
+
+          var finalItems = (mode === 'SELISIH')
+            ? mappedAll.filter(function(it) { return Number(it.kl || 0) !== 0; })
+            : mappedAll;
+
+          return {
+            source: 'SUPABASE',
+            items: finalItems,
+            totalAllCount: mappedAll.length
+          };
+        }
+      } catch (e) {
+        console.warn('Fallback ke Google Sheets:', e.message);
+      }
+      return { source: 'SHEETS_FALLBACK', items: null };
     }
-  }
 
-  if (typeof currentUser !== 'undefined' && currentUser && (currentUser.rawNama || currentUser.nama)) {
-    addName(currentUser.rawNama || currentUser.nama);
-  }
-
-  names.sort(function(a, b) { return a.localeCompare(b, 'id'); });
-
-  var target = (selectedVal || '').toString().trim();
-  var foundMatch = false;
-
-  names.forEach(function(n) {
-    var opt = document.createElement('option');
-    opt.value = n;
-    opt.textContent = n;
-    if (target && n.toLowerCase() === target.toLowerCase()) {
-      opt.selected = true;
-      foundMatch = true;
+    function prefetchEmployeesIfNeeded(storeId) {
+      if (!storeId || (Array.isArray(currentEmployeeList) && currentEmployeeList.length > 0)) return;
+      try {
+        google.script.run
+          .withSuccessHandler(function(res) {
+            if (res && res.success && Array.isArray(res.employeeNames)) {
+              updateEmployeeDropdownOptions(res.employeeNames);
+            }
+          })
+          .getStoreEmployees(storeId);
+      } catch (e) {}
     }
-    sel.appendChild(opt);
-  });
 
-  if (target && !foundMatch) {
-    var optOld = document.createElement('option');
-    optOld.value = target;
-    optOld.textContent = target + ' (Data Lama)';
-    optOld.selected = true;
-    sel.insertBefore(optOld, sel.options[1] || null);
-  }
-}
+    function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
+      var sel = document.getElementById(selectId);
+      if (!sel) return;
+      sel.innerHTML = '';
+
+      var optDefault = document.createElement('option');
+      optDefault.value = '';
+      optDefault.textContent = placeholderText || '-- Pilih Pendamping --';
+      sel.appendChild(optDefault);
+
+      var names = [];
+      var seen = {};
+      var addName = function(n) {
+        var clean = (n || '').toString()
+          .replace(/^(SPV|Kapten)\s*-\s*/i, '')
+          .replace(/\s*\([^)]*\)\s*$/, '')
+          .trim();
+        if (!clean || clean.toLowerCase().indexOf('pilih') !== -1) return;
+        var key = clean.toLowerCase();
+        if (!seen[key]) {
+          seen[key] = true;
+          names.push(clean);
+        }
+      };
+
+      var loginSel = document.getElementById('loginUserSelect') ||
+                     document.getElementById('spvSelect') ||
+                     document.querySelector('#loginScreen select, #loginOverlay select');
+      if (loginSel && loginSel.options) {
+        for (var i = 0; i < loginSel.options.length; i++) {
+          var opt = loginSel.options[i];
+          if (opt.value) addName(opt.textContent);
+        }
+      }
+
+      if (typeof currentUser !== 'undefined' && currentUser && (currentUser.rawNama || currentUser.nama)) {
+        addName(currentUser.rawNama || currentUser.nama);
+      }
+
+      names.sort(function(a, b) { return a.localeCompare(b, 'id'); });
+
+      var target = (selectedVal || '').toString().trim();
+      var foundMatch = false;
+
+      names.forEach(function(n) {
+        var opt = document.createElement('option');
+        opt.value = n;
+        opt.textContent = n;
+        if (target && n.toLowerCase() === target.toLowerCase()) {
+          opt.selected = true;
+          foundMatch = true;
+        }
+        sel.appendChild(opt);
+      });
+
+      if (target && !foundMatch) {
+        var optOld = document.createElement('option');
+        optOld.value = target;
+        optOld.textContent = target + ' (Data Lama)';
+        optOld.selected = true;
+        sel.insertBefore(optOld, sel.options[1] || null);
+      }
+    }
 
     // =========================================================================
     // JEMBATAN API GITHUB PAGES -> GOOGLE APPS SCRIPT
@@ -1960,7 +2077,7 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
             try {
               data = JSON.parse(text);
             } catch (parseErr) {
-              throw new Error('Server tidak mengembalikan JSON. Pastikan Code.gs sudah di-Deploy Versi Baru & akses "Siapa saja (Anyone)".');
+              throw new Error('Server tidak mengembalikan JSON. Pastikan Kode.gs sudah di-Deploy Versi Baru & akses "Siapa saja (Anyone)".');
             }
             if (data && data.__apiError) {
               throw new Error(data.__apiError);
@@ -2782,7 +2899,7 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
       };
 
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Menyimpan...';
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Menyimpan & Sinkronisasi...';
       fb.innerHTML = '';
 
       google.script.run
@@ -2925,6 +3042,7 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
       document.getElementById('empFeedback').innerHTML = '';
       verifLoadedStoreId = '';
       scanLoadedStoreId = '';
+      currentEmployeeList = [];
 
       if (activeTabName === 'SELISIH') loadVerifSelisihItems();
       else if (activeTabName === 'SCAN') loadAllMasterItems();
@@ -3170,18 +3288,18 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
           noticeMasterText.innerHTML = '<strong>SHEET MASTER SUDAH TERKUNCI:</strong> (' + escapeHtml(currentMasterSheetLockInfo || '1x Upload') + '). Hanya Area Manager yang dapat membuka kunci Sheet Master.';
           btnSubmit.disabled = true;
         } else {
-          noticeMasterText.innerHTML = '<strong>Aturan Sheet Master (1x Upload Langsung Terkunci):</strong> Otomatis membaca file mentah POS, mengurutkan Kategori A-Z &rarr; Nama Barang A-Z, menimpa Kolom A, B, C, D &amp; S tanpa merusak rumus, lalu langsung mengunci Sheet Master.';
+          noticeMasterText.innerHTML = '<strong>Aturan Sheet Master (1x Upload Langsung Terkunci):</strong> Otomatis membaca file mentah POS, mengurutkan Kategori A-Z &rarr; Nama Barang A-Z, menimpa Kolom A, B, C, D &amp; S tanpa merusak rumus, langsung mengunci Sheet Master, dan menyinkronkan ke Supabase.';
           btnSubmit.disabled = isFolderBlocked || !hasFile;
         }
       } else if (target === 'DATA GUDANG') {
         noticeMaster.style.display = 'none';
         noticeAutoMap.style.display = 'flex';
-        autoMapText.innerHTML = '<strong>DATA GUDANG:</strong> Otomatis mencari tab <code>data gudang</code>, menimpa kolom data apa adanya mulai Baris 2, dan melindungi seluruh kolom rumus.';
+        autoMapText.innerHTML = '<strong>DATA GUDANG:</strong> Otomatis mencari tab <code>data gudang</code>, menimpa kolom data apa adanya mulai Baris 2, melindungi seluruh kolom rumus, dan menyinkronkan ke Supabase.';
         btnSubmit.disabled = isFolderBlocked || !hasFile;
       } else {
         noticeMaster.style.display = 'none';
         noticeAutoMap.style.display = 'flex';
-        var extra = target === 'Master Stok Level' ? ' + otomatis menambahkan kolom <strong>Jam Update</strong>.' : '.';
+        var extra = target === 'Master Stok Level' ? ' + otomatis menambahkan kolom <strong>Jam Update</strong> & sinkron ke Supabase.' : '.';
         autoMapText.innerHTML = '<strong>' + escapeHtml(target) + ':</strong> Otomatis mendeteksi header tabel POS &amp; menimpa data lama' + extra;
         btnSubmit.disabled = isFolderBlocked || !hasFile;
       }
@@ -3218,9 +3336,24 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
       }
     }
 
+    // === AKHIR BAGIAN 2 (TEMPEL BAGIAN 3 TEPAT DI BAWAH BARIS INI) ===
     // =========================================================================
-    // 7. MENU 3: VERIFIKASI SELISIH (SCAN BARCODE + CARD VIEW + FOTO LAZY LOAD)
+    // 7. MENU 3: VERIFIKASI SELISIH (HYBRID SUPABASE < 0.5 DETIK + FALLBACK)
     // =========================================================================
+    function formatNowWibClock() {
+      try {
+        return new Date().toLocaleTimeString('id-ID', {
+          timeZone: 'Asia/Jakarta',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }).replace(/\./g, ':');
+      } catch (e) {
+        return new Date().toTimeString().slice(0, 8);
+      }
+    }
+
     function loadVerifSelisihItems() {
       var selectedFileId = getActiveStoreId();
       var selectedFolderId = getActiveFolderId();
@@ -3239,37 +3372,62 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
       syncStatus.innerHTML = '<span class="text-primary"><i class="fa-solid fa-spinner fa-spin me-1"></i> Memuat...</span>';
       container.innerHTML = '<div class="text-center text-muted py-4 bg-white rounded-4 border w-100"><div class="spinner-border spinner-border-sm text-danger me-2"></div>Memuat daftar barang berselisih...</div>';
 
-      google.script.run
-        .withSuccessHandler(function(res) {
-          syncIcon.classList.remove('fa-spin');
-          syncBtn.disabled = false;
+      var loadFromSheetsFallback = function() {
+        google.script.run
+          .withSuccessHandler(function(res) {
+            syncIcon.classList.remove('fa-spin');
+            syncBtn.disabled = false;
 
-          if (!res || !res.success) {
-            syncStatus.innerHTML = '<span class="text-danger">' + escapeHtml(res ? res.error : 'Gagal memuat') + '</span>';
-            container.innerHTML = '<div class="alert alert-danger w-100">' + escapeHtml(res ? res.error : 'Gagal memuat data selisih') + '</div>';
+            if (!res || !res.success) {
+              syncStatus.innerHTML = '<span class="text-danger">' + escapeHtml(res ? res.error : 'Gagal memuat') + '</span>';
+              container.innerHTML = '<div class="alert alert-danger w-100">' + escapeHtml(res ? res.error : 'Gagal memuat data selisih') + '</div>';
+              return;
+            }
+
+            verifItemsCache = res.items || [];
+            verifLoadedStoreId = selectedFileId;
+            currentFolderLockStatus = res.folderLockStatus || currentFolderLockStatus;
+            currentStoreLockStatus = res.lockStatus || currentStoreLockStatus;
+            if (res.employeeNames && res.employeeNames.length > 0) {
+              updateEmployeeDropdownOptions(res.employeeNames);
+            }
+
+            syncStatus.innerHTML = '<i class="fa-regular fa-clock me-1 text-success"></i> ' + res.syncTime + ' WIB (Sheets)';
+            populateCategoryFilterSelect('verifCategoryFilter', verifItemsCache);
+            updateVerifCountersUI();
+            renderVerifSelisihCards(true);
+          })
+          .withFailureHandler(function(err) {
+            syncIcon.classList.remove('fa-spin');
+            syncBtn.disabled = false;
+            syncStatus.innerHTML = '<span class="text-danger">Error</span>';
+            container.innerHTML = '<div class="alert alert-danger w-100">Error server: ' + escapeHtml(err.message) + '</div>';
+          })
+          .getMasterItemsForMenu(selectedFileId, 'SELISIH', selectedFolderId, currentUser.role, currentUser.userKey);
+      };
+
+      var periodName = getActivePeriodNameClean();
+      loadMasterItemsFast(periodName, selectedFileId, 'SELISIH')
+        .then(function(fastRes) {
+          if (fastRes && fastRes.source === 'SUPABASE' && Array.isArray(fastRes.items)) {
+            syncIcon.classList.remove('fa-spin');
+            syncBtn.disabled = false;
+
+            verifItemsCache = fastRes.items;
+            verifLoadedStoreId = selectedFileId;
+            prefetchEmployeesIfNeeded(selectedFileId);
+
+            syncStatus.innerHTML = '<i class="fa-solid fa-bolt me-1 text-warning"></i> ' + formatNowWibClock() + ' WIB (Cepat)';
+            populateCategoryFilterSelect('verifCategoryFilter', verifItemsCache);
+            updateVerifCountersUI();
+            renderVerifSelisihCards(true);
             return;
           }
-
-          verifItemsCache = res.items || [];
-          verifLoadedStoreId = selectedFileId;
-          currentFolderLockStatus = res.folderLockStatus || currentFolderLockStatus;
-          currentStoreLockStatus = res.lockStatus || currentStoreLockStatus;
-          if (res.employeeNames && res.employeeNames.length > 0) {
-            updateEmployeeDropdownOptions(res.employeeNames);
-          }
-
-          syncStatus.innerHTML = '<i class="fa-regular fa-clock me-1 text-success"></i> ' + res.syncTime + ' WIB';
-          populateCategoryFilterSelect('verifCategoryFilter', verifItemsCache);
-          updateVerifCountersUI();
-          renderVerifSelisihCards(true);
+          loadFromSheetsFallback();
         })
-        .withFailureHandler(function(err) {
-          syncIcon.classList.remove('fa-spin');
-          syncBtn.disabled = false;
-          syncStatus.innerHTML = '<span class="text-danger">Error</span>';
-          container.innerHTML = '<div class="alert alert-danger w-100">Error server: ' + escapeHtml(err.message) + '</div>';
-        })
-        .getMasterItemsForMenu(selectedFileId, 'SELISIH', selectedFolderId, currentUser.role, currentUser.userKey);
+        .catch(function() {
+          loadFromSheetsFallback();
+        });
     }
 
     function updateVerifCountersUI() {
@@ -3456,7 +3614,7 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
     }
 
     // =========================================================================
-    // 8. MENU 4: SCAN BARCODE / SO AWAL (CARD VIEW MOBILE + PELACAK EDIT)
+    // 8. MENU 4: SCAN BARCODE / SO AWAL (HYBRID SUPABASE < 0.5 DETIK + FALLBACK)
     // =========================================================================
     function loadAllMasterItems() {
       var selectedFileId = getActiveStoreId();
@@ -3476,37 +3634,62 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
       syncStatus.innerHTML = '<span class="text-primary"><i class="fa-solid fa-spinner fa-spin me-1"></i> Memuat...</span>';
       container.innerHTML = '<div class="text-center text-muted py-4 bg-white rounded-4 border w-100"><div class="spinner-border spinner-border-sm text-danger me-2"></div>Memuat seluruh barang Sheet Master...</div>';
 
-      google.script.run
-        .withSuccessHandler(function(res) {
-          syncIcon.classList.remove('fa-spin');
-          syncBtn.disabled = false;
+      var loadFromSheetsFallback = function() {
+        google.script.run
+          .withSuccessHandler(function(res) {
+            syncIcon.classList.remove('fa-spin');
+            syncBtn.disabled = false;
 
-          if (!res || !res.success) {
-            syncStatus.innerHTML = '<span class="text-danger">' + escapeHtml(res ? res.error : 'Gagal') + '</span>';
-            container.innerHTML = '<div class="alert alert-danger w-100">' + escapeHtml(res ? res.error : 'Gagal memuat data barang') + '</div>';
+            if (!res || !res.success) {
+              syncStatus.innerHTML = '<span class="text-danger">' + escapeHtml(res ? res.error : 'Gagal') + '</span>';
+              container.innerHTML = '<div class="alert alert-danger w-100">' + escapeHtml(res ? res.error : 'Gagal memuat data barang') + '</div>';
+              return;
+            }
+
+            allMasterItemsCache = res.items || [];
+            scanLoadedStoreId = selectedFileId;
+            currentFolderLockStatus = res.folderLockStatus || currentFolderLockStatus;
+            currentStoreLockStatus = res.lockStatus || currentStoreLockStatus;
+            if (res.employeeNames && res.employeeNames.length > 0) {
+              updateEmployeeDropdownOptions(res.employeeNames);
+            }
+
+            syncStatus.innerHTML = '<i class="fa-regular fa-clock me-1 text-success"></i> ' + res.syncTime + ' (' + allMasterItemsCache.length + ' SKU • Sheets)';
+            populateCategoryFilterSelect('scanCategoryFilter', allMasterItemsCache);
+            updateScanCountersUI();
+            renderScanSoCards(true);
+          })
+          .withFailureHandler(function(err) {
+            syncIcon.classList.remove('fa-spin');
+            syncBtn.disabled = false;
+            syncStatus.innerHTML = '<span class="text-danger">Error</span>';
+            container.innerHTML = '<div class="alert alert-danger w-100">Error server: ' + escapeHtml(err.message) + '</div>';
+          })
+          .getMasterItemsForMenu(selectedFileId, 'ALL', selectedFolderId, currentUser.role, currentUser.userKey);
+      };
+
+      var periodName = getActivePeriodNameClean();
+      loadMasterItemsFast(periodName, selectedFileId, 'ALL')
+        .then(function(fastRes) {
+          if (fastRes && fastRes.source === 'SUPABASE' && Array.isArray(fastRes.items)) {
+            syncIcon.classList.remove('fa-spin');
+            syncBtn.disabled = false;
+
+            allMasterItemsCache = fastRes.items;
+            scanLoadedStoreId = selectedFileId;
+            prefetchEmployeesIfNeeded(selectedFileId);
+
+            syncStatus.innerHTML = '<i class="fa-solid fa-bolt me-1 text-warning"></i> ' + formatNowWibClock() + ' (' + allMasterItemsCache.length + ' SKU • Cepat)';
+            populateCategoryFilterSelect('scanCategoryFilter', allMasterItemsCache);
+            updateScanCountersUI();
+            renderScanSoCards(true);
             return;
           }
-
-          allMasterItemsCache = res.items || [];
-          scanLoadedStoreId = selectedFileId;
-          currentFolderLockStatus = res.folderLockStatus || currentFolderLockStatus;
-          currentStoreLockStatus = res.lockStatus || currentStoreLockStatus;
-          if (res.employeeNames && res.employeeNames.length > 0) {
-            updateEmployeeDropdownOptions(res.employeeNames);
-          }
-
-          syncStatus.innerHTML = '<i class="fa-regular fa-clock me-1 text-success"></i> ' + res.syncTime + ' (' + allMasterItemsCache.length + ' SKU)';
-          populateCategoryFilterSelect('scanCategoryFilter', allMasterItemsCache);
-          updateScanCountersUI();
-          renderScanSoCards(true);
+          loadFromSheetsFallback();
         })
-        .withFailureHandler(function(err) {
-          syncIcon.classList.remove('fa-spin');
-          syncBtn.disabled = false;
-          syncStatus.innerHTML = '<span class="text-danger">Error</span>';
-          container.innerHTML = '<div class="alert alert-danger w-100">Error server: ' + escapeHtml(err.message) + '</div>';
-        })
-        .getMasterItemsForMenu(selectedFileId, 'ALL', selectedFolderId, currentUser.role, currentUser.userKey);
+        .catch(function() {
+          loadFromSheetsFallback();
+        });
     }
 
     function updateScanCountersUI() {
