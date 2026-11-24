@@ -4251,52 +4251,6 @@ function startHtml5QrFallback(readerId, statusEl) {
 
       setTimeout(function() { isProcessingScan = false; }, 900);
     }
-    function onBarcodeScanSuccess(decodedText) {
-      if (isProcessingScan) return;
-      isProcessingScan = true;
-
-      var scannedSku = cleanSkuLocal(decodedText);
-      var noZeroSku = scannedSku.replace(/^0+/, '');
-      var modeNow = activeScannerMode;
-
-      stopBarcodeScanner();
-
-      if (modeNow === 'SELISIH') {
-        var verifInput = document.getElementById('verifSearchInput');
-        if (verifInput) {
-          verifInput.value = scannedSku;
-          renderVerifSelisihCards(true);
-        }
-        var matchedVerif = verifItemsCache.find(function(it) {
-          var s = cleanSkuLocal(it.sku);
-          return s === scannedSku || (noZeroSku && s.replace(/^0+/, '') === noZeroSku);
-        });
-        if (matchedVerif) {
-          showToast('Barang selisih ditemukan: ' + matchedVerif.product, false);
-          openItemModal('SELISIH', matchedVerif);
-        } else {
-          showToast('SKU ' + scannedSku + ' tidak masuk daftar selisih (stok sudah cocok atau tidak ditemukan).', true);
-        }
-      } else {
-        var searchInput = document.getElementById('scanSearchInput');
-        if (searchInput) {
-          searchInput.value = scannedSku;
-          renderScanSoCards(true);
-        }
-        var matchedScan = allMasterItemsCache.find(function(it) {
-          var s = cleanSkuLocal(it.sku);
-          return s === scannedSku || (noZeroSku && s.replace(/^0+/, '') === noZeroSku);
-        });
-        if (matchedScan) {
-          showToast('Barcode terbaca: ' + matchedScan.product, false);
-          openItemModal('SO_AWAL', matchedScan);
-        } else {
-          showToast('Barcode ' + scannedSku + ' tidak ditemukan di Sheet Master!', true);
-        }
-      }
-
-      setTimeout(function() { isProcessingScan = false; }, 1200);
-    }
 
     // =========================================================================
     // 9B. KAMERA KECIL LIVE DI DALAM POP-UP FOTO BUKTI (INLINE CAMERA)
@@ -4389,6 +4343,7 @@ function startHtml5QrFallback(readerId, statusEl) {
       }
 
       
+var maxDim = 720;
       var w = videoEl.videoWidth;
       var h = videoEl.videoHeight;
       if (w > maxDim || h > maxDim) {
@@ -4402,7 +4357,7 @@ function startHtml5QrFallback(readerId, statusEl) {
       var ctx = canvas.getContext('2d');
       ctx.drawImage(videoEl, 0, 0, w, h);
 
-      pendingModalPhotoBase64 = canvas.toDataURL('image/jpeg', 0.72);
+      pendingModalPhotoBase64 = canvas.toDataURL('image/jpeg', 0.55);
       currentModalZoomUrl = pendingModalPhotoBase64;
       currentModalDriveViewUrl = '';
 
