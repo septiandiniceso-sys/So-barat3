@@ -23,6 +23,19 @@
   <script defer src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
+  <!-- Mesin ZBar WebAssembly khusus iPhone/iOS agar Mode Turbo aktif & responsif baca barcode kertas 1D -->
+  <script type="module">
+    if (!('BarcodeDetector' in window)) {
+      import('https://cdn.jsdelivr.net/npm/@undecaf/barcode-detector-polyfill@0.9.23/dist/main.js')
+        .then(function(mod) {
+          if (mod && mod.BarcodeDetectorPolyfill && !('BarcodeDetector' in window)) {
+            window.BarcodeDetector = mod.BarcodeDetectorPolyfill;
+          }
+        })
+        .catch(function() {});
+    }
+  </script>
+  
   <style>
     :root {
       --niceso-red: #c00000;
