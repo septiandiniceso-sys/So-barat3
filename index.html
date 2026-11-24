@@ -3991,7 +3991,7 @@
       stopBarcodeScannerAsync(true);
     }
 
-    function startHtml5QrFallback(readerId, statusEl) {
+function startHtml5QrFallback(readerId, statusEl) {
       if (typeof Html5Qrcode === 'undefined') {
         resetScannerUiAll(false);
         if (statusEl) statusEl.innerHTML = '<span class="text-danger">Library kamera belum siap. Muat ulang halaman lalu coba lagi.</span>';
@@ -3999,6 +3999,9 @@
       }
 
       try {
+        var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
         var scannerOpts = {
           verbose: false,
           experimentalFeatures: { useBarCodeDetectorIfSupported: true }
@@ -4020,25 +4023,29 @@
         html5QrScanner.start(
           { facingMode: 'environment' },
           {
-            fps: 12,
+            fps: isIOS ? 20 : 12,
             disableFlip: true,
             qrbox: function(w, h) {
               return {
-                width: Math.max(210, Math.floor(w * 0.85)),
-                height: Math.max(100, Math.floor(h * 0.42))
+                width: Math.max(220, Math.floor(w * 0.90)),
+                height: Math.max(120, Math.floor(h * 0.50))
               };
             },
             videoConstraints: {
-              facingMode: { ideal: 'environment' },
-              width: { ideal: 640 },
-              height: { ideal: 480 }
+              facingMode: 'environment',
+              width: { ideal: isIOS ? 1280 : 640 },
+              height: { ideal: isIOS ? 720 : 480 }
             }
           },
           onBarcodeScanSuccess,
           function() {}
         ).then(function() {
           isScannerRunning = true;
-          if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="fa-solid fa-camera me-1"></i> Kamera aktif (Mode Kompatibel). Posisikan barcode sejajar di kotak.</span>';
+          if (statusEl) {
+            statusEl.innerHTML = isIOS
+              ? '<span class="text-success"><i class="fa-solid fa-camera me-1"></i> Kamera HD iPhone aktif! Beri jarak <strong>15–20 cm</strong> agar fokus tajam.</span>'
+              : '<span class="text-success"><i class="fa-solid fa-camera me-1"></i> Kamera aktif (Mode Kompatibel). Posisikan barcode sejajar di kotak.</span>';
+          }
         }).catch(function(err) {
           isScannerRunning = false;
           html5QrScanner = null;
@@ -4368,7 +4375,7 @@
         return;
       }
 
-      var maxDim = 1024;
+      
       var w = videoEl.videoWidth;
       var h = videoEl.videoHeight;
       if (w > maxDim || h > maxDim) {
@@ -4712,7 +4719,7 @@
       reader.onload = function(ev) {
         var img = new Image();
         img.onload = function() {
-          var maxDim = 1024;
+          var maxDim = 720;
           var w = img.width;
           var h = img.height;
           if (w > maxDim || h > maxDim) {
@@ -4725,7 +4732,7 @@
           var ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, w, h);
 
-          pendingModalPhotoBase64 = canvas.toDataURL('image/jpeg', 0.72);
+          pendingModalPhotoBase64 = canvas.toDataURL('image/jpeg', 0.55);
           currentModalZoomUrl = pendingModalPhotoBase64;
           currentModalDriveViewUrl = '';
 
@@ -4762,106 +4769,254 @@
       saveModalDraftLocal();
     }
 
+// =========================================================================
+    // MESIN SIMPAN LATAR BELAKANG (BACKGROUND SAVE QUEUE — ANTI BENTROK)
+    // =========================================================================
+    var bgSaveQueue = [];
+    var isBgSaveRunning = false;
+    var bgSaveHideTimer = null;
+
+    window.addEventListener('beforeunload', function(e) {
+      var activeCount = bgSaveQueue.filter(function(q) { return q.status === 'PENDING' || q.status === 'SENDING' || q.status === 'FAILED'; }).length;
+      if (activeCount > 0) {
+        e.preventDefault();
+        e.returnValue = 'Masih ada data SO yang sedang dikirim ke server. Yakin ingin menutup halaman?';
+      }
+    });
+
+    function ensureBgSaveBar() {
+      var bar = document.getElementById('bgSaveStatusBar');
+      if (bar) return bar;
+      bar = document.createElement('div');
+      bar.id = 'bgSaveStatusBar';
+      bar.className = 'no-print shadow-lg';
+      bar.style.cssText = 'position:fixed; left:12px; right:12px; bottom:84px; max-width:520px; margin:0 auto; z-index:10750; display:none; border-radius:12px; padding:10px 14px; font-size:0.82rem; font-weight:700;';
+      document.body.appendChild(bar);
+      return bar;
+    }
+
+    function updateBgSaveBarUI(doneMsg) {
+      var bar = ensureBgSaveBar();
+      if (bgSaveHideTimer) {
+        clearTimeout(bgSaveHideTimer);
+        bgSaveHideTimer = null;
+      }
+
+      var sending = bgSaveQueue.filter(function(q) { return q.status === 'SENDING'; });
+      var pending = bgSaveQueue.filter(function(q) { return q.status === 'PENDING'; });
+      var failed = bgSaveQueue.filter(function(q) { return q.status === 'FAILED'; });
+      var inFlight = sending.length + pending.length;
+
+      if (inFlight > 0) {
+        var cur = sending[0] || pending[0];
+        var shortProd = (cur.product || cur.sku || '').substring(0, 26);
+        bar.style.display = 'flex';
+        bar.style.background = '#0f172a';
+        bar.style.color = '#ffffff';
+        bar.style.border = '1px solid rgba(255,255,255,0.18)';
+        bar.className = 'no-print shadow-lg d-flex justify-content-between align-items-center gap-2';
+        bar.innerHTML =
+          '<div><span class="spinner-border spinner-border-sm text-warning me-2"></span>Menyimpan ke server (' + inFlight + ' antrean): <span class="text-warning">' + escapeHtml(shortProd) + '</span></div>' +
+          (failed.length > 0 ? '<span class="badge bg-danger">' + failed.length + ' gagal</span>' : '');
+        return;
+      }
+
+      if (failed.length > 0) {
+        bar.style.display = 'flex';
+        bar.style.background = '#991b1b';
+        bar.style.color = '#ffffff';
+        bar.style.border = '1px solid #fecaca';
+        bar.className = 'no-print shadow-lg d-flex justify-content-between align-items-center flex-wrap gap-2';
+        bar.innerHTML =
+          '<div><i class="fa-solid fa-wifi me-1"></i> ' + failed.length + ' barang gagal kirim (' + escapeHtml(failed[0].sku) + ')</div>' +
+          '<button type="button" class="btn btn-sm btn-warning text-dark fw-bold py-0 px-2" onclick="retryFailedBgSaves()"><i class="fa-solid fa-rotate-right me-1"></i>Kirim Ulang</button>';
+        return;
+      }
+
+      if (doneMsg) {
+        bar.style.display = 'flex';
+        bar.style.background = '#065f46';
+        bar.style.color = '#ffffff';
+        bar.style.border = '1px solid #6ee7b7';
+        bar.className = 'no-print shadow-lg d-flex justify-content-between align-items-center gap-2';
+        bar.innerHTML = '<div><i class="fa-solid fa-circle-check me-1"></i> ' + escapeHtml(doneMsg) + '</div>';
+        bgSaveHideTimer = setTimeout(function() {
+          bar.style.display = 'none';
+        }, 2500);
+      } else {
+        bar.style.display = 'none';
+      }
+    }
+
+    function retryFailedBgSaves() {
+      bgSaveQueue.forEach(function(job) {
+        if (job.status === 'FAILED') {
+          job.status = 'PENDING';
+          job.error = '';
+        }
+      });
+      updateBgSaveBarUI();
+      processBgSaveQueue();
+    }
+
+    function processBgSaveQueue() {
+      if (isBgSaveRunning) return;
+      var nextJob = bgSaveQueue.find(function(q) { return q.status === 'PENDING'; });
+      if (!nextJob) {
+        updateBgSaveBarUI();
+        return;
+      }
+
+      isBgSaveRunning = true;
+      nextJob.status = 'SENDING';
+      updateBgSaveBarUI();
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          isBgSaveRunning = false;
+          if (res && res.success) {
+            var idx = bgSaveQueue.indexOf(nextJob);
+            if (idx !== -1) bgSaveQueue.splice(idx, 1);
+            if (res.updated) {
+              applyLocalItemUpdate(res.updated, true);
+            }
+            var hasMore = bgSaveQueue.some(function(q) { return q.status === 'PENDING'; });
+            if (hasMore) {
+              processBgSaveQueue();
+            } else {
+              updateBgSaveBarUI('Semua data & foto tersimpan di server!');
+            }
+          } else {
+            nextJob.status = 'FAILED';
+            nextJob.error = res && res.error ? res.error : 'Gagal menyimpan di server';
+            showToast('Gagal simpan ' + nextJob.sku + ': ' + nextJob.error, true);
+            processBgSaveQueue();
+          }
+        })
+        .withFailureHandler(function(err) {
+          isBgSaveRunning = false;
+          nextJob.status = 'FAILED';
+          nextJob.error = err && err.message ? err.message : 'Koneksi terputus';
+          showToast('Sinyal putus saat simpan ' + nextJob.sku + '. Klik Kirim Ulang.', true);
+          processBgSaveQueue();
+        })
+        .saveMasterItemUpdate(nextJob.payload);
+    }
+
     function saveModalItemChanges(isRetry) {
       if (!currentModalItem && !isRetry) return;
       stopModalInlineCamera();
 
       var feedback = document.getElementById('modalSaveFeedback');
-      var btn = document.getElementById('btnModalSaveItem');
-      var payload = null;
-
-      if (isRetry && lastFailedSavePayload) {
-        payload = lastFailedSavePayload;
-      } else {
-var fisikRaw = document.getElementById('inputEditFisik').value.trim();
-        if (fisikRaw === '' || isNaN(Number(fisikRaw)) || Number(fisikRaw) < 0) {
-          feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0">Isi kolom <strong>FISIK</strong> dengan angka 0 atau lebih!</div>';
-          return;
-        }
-
-        var labelTagVal = (document.getElementById('inputEditLabelTag').value || '').trim();
-        if (!labelTagVal) {
-          feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0"><i class="fa-solid fa-tag me-1"></i> Kolom <strong>LABEL TAG</strong> wajib dipilih (YES / NO / GDG / RTR) terlebih dahulu!</div>';
-          var tagEl = document.getElementById('inputEditLabelTag');
-          if (tagEl) tagEl.focus();
-          return;
-        }
-
-        var newFisikNum = Number(fisikRaw);
-        var rtrNum = parseNumLocal(document.getElementById('inputEditRtr').value.trim());
-        var gudangNum = parseNumLocal(currentModalItem.gudang);
-        var refStock = (currentModalItem.qtyUpd !== '' && currentModalItem.qtyUpd !== '-')
-          ? parseNumLocal(currentModalItem.qtyUpd)
-          : parseNumLocal(currentModalItem.stockQty);
-        var predictedSelisih = (newFisikNum + gudangNum + rtrNum) - refStock;
-        var hasAnyPhoto = !!(pendingModalPhotoBase64 || currentModalItem.fotoDriveId || currentModalItem.fotoBukti);
-
-        if (predictedSelisih !== 0 && !hasAnyPhoto) {
-          var selisihLabel = predictedSelisih > 0 ? ('+' + predictedSelisih) : String(predictedSelisih);
-          feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0"><i class="fa-solid fa-camera me-1"></i> <strong>Foto Bukti Wajib Dilampirkan</strong> karena stok berselisih (<strong>' + selisihLabel + '</strong>)! Tekan tombol <strong>"Kamera Cepat"</strong> atau <strong>"Galeri / HP"</strong> di kotak kuning atas.</div>';
-          return;
-        }
-
-        payload = {
-          fileId: getActiveStoreId(),
-          folderId: getActiveFolderId(),
-          menuMode: currentModalMode,
-          rowIndex: currentModalItem.rowIndex,
-          sku: currentModalItem.sku,
-          product: currentModalItem.product,
-          fisik: newFisikNum,
-          labelTag: document.getElementById('inputEditLabelTag').value,
-          rtr: document.getElementById('inputEditRtr').value.trim(),
-          flVerif: document.getElementById('inputEditFlVerif').value,
-          pendamping: document.getElementById('inputEditPendamping').value,
-          ket: document.getElementById('inputEditKet').value.trim(),
-          userName: currentUser.nama,
-          userEmail: currentUser.email || currentUser.nama,
-          userKey: currentUser.userKey,
-          userRole: currentUser.role,
-          photoBase64: pendingModalPhotoBase64 || ''
-        };
+      var fisikRaw = document.getElementById('inputEditFisik').value.trim();
+      if (fisikRaw === '' || isNaN(Number(fisikRaw)) || Number(fisikRaw) < 0) {
+        feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0">Isi kolom <strong>FISIK</strong> dengan angka 0 atau lebih!</div>';
+        return;
       }
 
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>' + (payload.photoBase64 ? 'Mengunggah Foto & Menyimpan...' : 'Menyimpan...');
-      feedback.innerHTML = '';
+      var labelTagVal = (document.getElementById('inputEditLabelTag').value || '').trim();
+      if (!labelTagVal) {
+        feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0"><i class="fa-solid fa-tag me-1"></i> Kolom <strong>LABEL TAG</strong> wajib dipilih (YES / NO / GDG / RTR) terlebih dahulu!</div>';
+        var tagEl = document.getElementById('inputEditLabelTag');
+        if (tagEl) tagEl.focus();
+        return;
+      }
 
-      google.script.run
-        .withSuccessHandler(function(res) {
-          btn.disabled = false;
-          btn.innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i> Simpan & Catat Log';
+      var newFisikNum = Number(fisikRaw);
+      var rtrRaw = document.getElementById('inputEditRtr').value.trim();
+      var rtrNum = parseNumLocal(rtrRaw);
+      var gudangNum = parseNumLocal(currentModalItem.gudang);
+      var refStock = (currentModalItem.qtyUpd !== '' && currentModalItem.qtyUpd !== '-')
+        ? parseNumLocal(currentModalItem.qtyUpd)
+        : parseNumLocal(currentModalItem.stockQty);
+      var predictedSelisih = (newFisikNum + gudangNum + rtrNum) - refStock;
+      var hasAnyPhoto = !!(pendingModalPhotoBase64 || currentModalItem.fotoDriveId || currentModalItem.fotoBukti);
 
-          if (!res || !res.success) {
-            feedback.innerHTML = '<div class="alert alert-danger py-2 small mb-0">' + escapeHtml(res ? res.error : 'Gagal menyimpan data') + '</div>';
-            return;
-          }
+      if (predictedSelisih !== 0 && !hasAnyPhoto) {
+        var selisihLabel = predictedSelisih > 0 ? ('+' + predictedSelisih) : String(predictedSelisih);
+        feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0"><i class="fa-solid fa-camera me-1"></i> <strong>Foto Bukti Wajib Dilampirkan</strong> karena stok berselisih (<strong>' + selisihLabel + '</strong>)! Tekan tombol <strong>"Kamera Cepat"</strong> atau <strong>"Galeri / HP"</strong> di kotak kuning atas.</div>';
+        return;
+      }
 
-          lastFailedSavePayload = null;
-          pendingModalPhotoBase64 = '';
-          clearModalDraftLocal(payload.sku);
-          applyLocalItemUpdate(res.updated);
-          var m = getBsModal('itemEditModal');
-          if (m) m.hide();
-          showToast(res.message, false);
-        })
-        .withFailureHandler(function(err) {
-          btn.disabled = false;
-          btn.innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i> Simpan & Catat Log';
-          lastFailedSavePayload = payload;
-          feedback.innerHTML = '<div class="alert alert-danger py-2 small mb-0 d-flex justify-content-between align-items-center flex-wrap gap-2">' +
-            '<span><i class="fa-solid fa-wifi me-1"></i> Sinyal terputus (' + escapeHtml(err.message) + '). Input &amp; foto Anda tetap aman!</span>' +
-            '<button type="button" class="btn btn-sm btn-danger fw-bold" onclick="saveModalItemChanges(true)"><i class="fa-solid fa-rotate-right me-1"></i> Coba Simpan Ulang</button>' +
-            '</div>';
-        })
-        .saveMasterItemUpdate(payload);
+      var payload = {
+        fileId: getActiveStoreId(),
+        folderId: getActiveFolderId(),
+        menuMode: currentModalMode,
+        rowIndex: currentModalItem.rowIndex,
+        sku: currentModalItem.sku,
+        product: currentModalItem.product,
+        fisik: newFisikNum,
+        labelTag: labelTagVal,
+        rtr: rtrRaw,
+        flVerif: document.getElementById('inputEditFlVerif').value,
+        pendamping: document.getElementById('inputEditPendamping').value,
+        ket: document.getElementById('inputEditKet').value.trim(),
+        userName: currentUser.nama,
+        userEmail: currentUser.email || currentUser.nama,
+        userKey: currentUser.userKey,
+        userRole: currentUser.role,
+        photoBase64: pendingModalPhotoBase64 || ''
+      };
+
+      // 1. Update tampilan kartu secara instan (Optimistic UI)
+      var hargaNum = parseNumLocal(currentModalItem.harga);
+      var totalNum = Math.round(predictedSelisih * hargaNum);
+      var optimisticUpd = {
+        rowIndex: currentModalItem.rowIndex,
+        sku: currentModalItem.sku,
+        fisik: newFisikNum,
+        labelTag: labelTagVal,
+        rtr: rtrRaw,
+        flVerif: payload.flVerif,
+        pendamping: payload.pendamping,
+        ket: payload.ket,
+        kl: predictedSelisih,
+        klDisp: String(predictedSelisih),
+        total: totalNum < 0
+          ? ('Rp (' + Math.abs(totalNum).toLocaleString('id-ID') + ')')
+          : ('Rp ' + totalNum.toLocaleString('id-ID')),
+        qtyUpd: currentModalItem.qtyUpd,
+        jam: currentModalItem.jam,
+        email: payload.userEmail,
+        waktuUbah: formatNowWibClock(),
+        stokSebelum: currentModalItem.fisik === '' ? '-' : currentModalItem.fisik
+      };
+
+      applyLocalItemUpdate(optimisticUpd, false);
+      pendingModalPhotoBase64 = '';
+      clearModalDraftLocal(payload.sku);
+
+      // 2. Tutup pop-up langsung (< 0.3 detik) agar bisa langsung scan berikutnya
+      var m = getBsModal('itemEditModal');
+      if (m) m.hide();
+
+      // 3. Masukkan ke antrean pengiriman latar belakang (ganti jika SKU sama masih pending)
+      var existingIdx = bgSaveQueue.findIndex(function(q) {
+        return q.sku === payload.sku && (q.status === 'PENDING' || q.status === 'FAILED');
+      });
+      if (existingIdx !== -1) {
+        bgSaveQueue[existingIdx].payload = payload;
+        bgSaveQueue[existingIdx].status = 'PENDING';
+        bgSaveQueue[existingIdx].error = '';
+      } else {
+        bgSaveQueue.push({
+          sku: payload.sku,
+          product: payload.product,
+          payload: payload,
+          status: 'PENDING',
+          error: ''
+        });
+      }
+
+      updateBgSaveBarUI();
+      processBgSaveQueue();
     }
 
-    function applyLocalItemUpdate(upd) {
+    function applyLocalItemUpdate(upd, isServerConfirm) {
       if (!upd) return;
 
       var patchItem = function(it) {
-        it.rowIndex = upd.rowIndex;
+        if (upd.rowIndex) it.rowIndex = upd.rowIndex;
         it.fisik = upd.fisik;
         it.labelTag = upd.labelTag;
         it.rtr = upd.rtr;
@@ -4871,23 +5026,25 @@ var fisikRaw = document.getElementById('inputEditFisik').value.trim();
         it.kl = upd.kl;
         it.klDisp = upd.klDisp;
         it.total = upd.total;
-        it.qtyUpd = upd.qtyUpd;
-        it.jam = upd.jam;
-        it.email = upd.email;
+        if (upd.qtyUpd !== undefined) it.qtyUpd = upd.qtyUpd;
+        if (upd.jam !== undefined) it.jam = upd.jam;
+        if (upd.email) it.email = upd.email;
         if (upd.fotoBukti) it.fotoBukti = upd.fotoBukti;
         if (upd.fotoDriveId) it.fotoDriveId = upd.fotoDriveId;
 
-        it.editCount = (it.editCount || 0) + 1;
-        it.lastEditBy = upd.email;
-        it.lastEditTime = upd.waktuUbah;
-        if (!Array.isArray(it.editHistory)) it.editHistory = [];
-        it.editHistory.push({
-          before: upd.stokSebelum !== undefined ? upd.stokSebelum : '-',
-          after: upd.fisik,
-          time: upd.waktuUbah,
-          by: upd.email
-        });
-        if (it.editHistory.length > 6) it.editHistory.shift();
+        if (!isServerConfirm) {
+          it.editCount = (it.editCount || 0) + 1;
+          it.lastEditBy = upd.email;
+          it.lastEditTime = upd.waktuUbah;
+          if (!Array.isArray(it.editHistory)) it.editHistory = [];
+          it.editHistory.push({
+            before: upd.stokSebelum !== undefined ? upd.stokSebelum : '-',
+            after: upd.fisik,
+            time: upd.waktuUbah,
+            by: upd.email
+          });
+          if (it.editHistory.length > 6) it.editHistory.shift();
+        }
       };
 
       var scanIdx = allMasterItemsCache.findIndex(function(it) { return it.sku === upd.sku; });
@@ -4912,7 +5069,6 @@ var fisikRaw = document.getElementById('inputEditFisik').value.trim();
         renderVerifSelisihCards(false);
       }
     }
-
     // =========================================================================
     // 12. DASHBOARD AREA (MENU 1 — KHUSUS AM)
     // =========================================================================
