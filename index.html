@@ -3876,13 +3876,42 @@
       }
     }
 
+// =========================================================================
+    // 9. KAMERA BARCODE SCANNER DUAL-ENGINE (NATIVE CEPAT + FALLBACK RINGAN)
     // =========================================================================
-    // 9. KAMERA BARCODE SCANNER LIVE (MENDUKUNG SCAN SO AWAL & VERIFIKASI SELISIH)
-    // =========================================================================
+    var nativeScanStream = null;
+    var nativeScanRafId = null;
+    var nativeScanTrack = null;
+    var nativeScanTorchOn = false;
+
+    function playScanBeep() {
+      try {
+        if (navigator.vibrate) navigator.vibrate(70);
+        var AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        var ctx = new AudioCtx();
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 1400;
+        gain.gain.value = 0.12;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        setTimeout(function() {
+          try { osc.stop(); ctx.close(); } catch (e) {}
+        }, 90);
+      } catch (e) {}
+    }
+
     function resetScannerUiAll(clearMsg) {
       ['barcodeReaderWrapper', 'verifBarcodeReaderWrapper'].forEach(function(id) {
         var el = document.getElementById(id);
         if (el) el.style.display = 'none';
+      });
+      ['qrReader', 'qrReaderVerif'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.innerHTML = '';
       });
       ['btnStartCamera', 'btnStartVerifCamera'].forEach(function(id) {
         var el = document.getElementById(id);
@@ -3900,8 +3929,39 @@
       }
     }
 
+    function toggleScannerTorch() {
+      if (!nativeScanTrack || typeof nativeScanTrack.applyConstraints !== 'function') return;
+      var nextState = !nativeScanTorchOn;
+      nativeScanTrack.applyConstraints({
+        advanced: [{ torch: nextState }]
+      }).then(function() {
+        nativeScanTorchOn = nextState;
+        var btn = document.getElementById('btnNativeScanTorch');
+        if (btn) {
+          btn.className = nativeScanTorchOn
+            ? 'btn btn-warning text-dark btn-sm fw-bold position-absolute bottom-0 end-0 m-2'
+            : 'btn btn-dark btn-sm fw-bold position-absolute bottom-0 end-0 m-2 opacity-75';
+        }
+      }).catch(function() {
+        showToast('Flash tidak didukung di browser HP ini.', true);
+      });
+    }
+
     function stopBarcodeScannerAsync(clearMsg) {
       return new Promise(function(resolve) {
+        if (nativeScanRafId) {
+          cancelAnimationFrame(nativeScanRafId);
+          nativeScanRafId = null;
+        }
+        if (nativeScanStream) {
+          try {
+            nativeScanStream.getTracks().forEach(function(t) { t.stop(); });
+          } catch (e) {}
+          nativeScanStream = null;
+        }
+        nativeScanTrack = null;
+        nativeScanTorchOn = false;
+
         if (html5QrScanner && isScannerRunning) {
           var oldInstance = html5QrScanner;
           isScannerRunning = false;
@@ -3931,7 +3991,83 @@
       stopBarcodeScannerAsync(true);
     }
 
-function startBarcodeScanner(mode) {
+    function startHtml5QrFallback(readerId, statusEl) {
+      if (typeof Html5Qrcode === 'undefined') {
+        resetScannerUiAll(false);
+        if (statusEl) statusEl.innerHTML = '<span class="text-danger">Library kamera belum siap. Muat ulang halaman lalu coba lagi.</span>';
+        return;
+      }
+
+      try {
+        var scannerOpts = {
+          verbose: false,
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+        };
+        if (typeof Html5QrcodeSupportedFormats !== 'undefined') {
+          scannerOpts.formatsToSupport = [
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.ITF,
+            Html5QrcodeSupportedFormats.QR_CODE
+          ];
+        }
+
+        html5QrScanner = new Html5Qrcode(readerId, scannerOpts);
+        html5QrScanner.start(
+          { facingMode: 'environment' },
+          {
+            fps: 12,
+            disableFlip: true,
+            qrbox: function(w, h) {
+              return {
+                width: Math.max(210, Math.floor(w * 0.85)),
+                height: Math.max(100, Math.floor(h * 0.42))
+              };
+            },
+            videoConstraints: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 640 },
+              height: { ideal: 480 }
+            }
+          },
+          onBarcodeScanSuccess,
+          function() {}
+        ).then(function() {
+          isScannerRunning = true;
+          if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="fa-solid fa-camera me-1"></i> Kamera aktif (Mode Kompatibel). Posisikan barcode sejajar di kotak.</span>';
+        }).catch(function(err) {
+          isScannerRunning = false;
+          html5QrScanner = null;
+          resetScannerUiAll(false);
+          showScannerCameraError(statusEl, err);
+        });
+      } catch (e) {
+        resetScannerUiAll(false);
+        if (statusEl) statusEl.innerHTML = '<span class="text-danger">Error kamera: ' + escapeHtml(e.message) + '</span>';
+      }
+    }
+
+    function showScannerCameraError(statusEl, err) {
+      var isGitHubHost = (window.location && window.location.hostname && window.location.hostname.indexOf('github.io') !== -1);
+      var hintHtml = isGitHubHost
+        ? 'Pastikan izin kamera diizinkan pada pop-up Chrome.'
+        : (globalWebAppUrl
+            ? ('Buka link langsung di Chrome: <div class="mt-2"><a href="' + escapeHtml(globalWebAppUrl) + '" target="_blank" rel="noopener" class="btn btn-sm btn-danger fw-bold"><i class="fa-solid fa-up-right-from-square me-1"></i> Buka Mode Penuh</a></div>')
+            : 'Pastikan izin kamera di browser sudah diaktifkan.');
+
+      if (statusEl) {
+        statusEl.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">' +
+          '<i class="fa-solid fa-triangle-exclamation me-1"></i> ' +
+          '<strong>Gagal membuka kamera</strong> (' + escapeHtml(err && err.message ? err.message : err) + '). ' + hintHtml +
+          '</div>';
+      }
+    }
+
+    function startBarcodeScanner(mode) {
       var scanMode = (mode === 'SELISIH') ? 'SELISIH' : 'SCAN';
       var isVerif = (scanMode === 'SELISIH');
       var readerId = isVerif ? 'qrReaderVerif' : 'qrReader';
@@ -3939,11 +4075,6 @@ function startBarcodeScanner(mode) {
       var btnStart = document.getElementById(isVerif ? 'btnStartVerifCamera' : 'btnStartCamera');
       var btnStop = document.getElementById(isVerif ? 'btnStopVerifCamera' : 'btnStopCamera');
       var statusEl = document.getElementById(isVerif ? 'verifCameraStatusMsg' : 'cameraStatusMsg');
-
-      if (typeof Html5Qrcode === 'undefined') {
-        if (statusEl) statusEl.innerHTML = '<span class="text-danger">Library kamera belum siap. Muat ulang halaman lalu coba lagi.</span>';
-        return;
-      }
 
       if (isVerif && verifItemsCache.length === 0) loadVerifSelisihItems();
       if (!isVerif && allMasterItemsCache.length === 0) loadAllMasterItems();
@@ -3956,80 +4087,149 @@ function startBarcodeScanner(mode) {
         if (wrapper) wrapper.style.display = 'block';
         if (btnStart) btnStart.style.display = 'none';
         if (btnStop) btnStop.style.display = 'inline-block';
-        if (statusEl) statusEl.innerHTML = '<span class="text-primary"><i class="fa-solid fa-spinner fa-spin me-1"></i> Membuka kamera HD...</span>';
+        if (statusEl) statusEl.innerHTML = '<span class="text-primary"><i class="fa-solid fa-spinner fa-spin me-1"></i> Membuka kamera...</span>';
 
-        try {
-          var scannerOpts = {
-            verbose: false,
-            experimentalFeatures: { useBarCodeDetectorIfSupported: true }
-          };
-          if (typeof Html5QrcodeSupportedFormats !== 'undefined') {
-            scannerOpts.formatsToSupport = [
-              Html5QrcodeSupportedFormats.EAN_13,
-              Html5QrcodeSupportedFormats.EAN_8,
-              Html5QrcodeSupportedFormats.CODE_128,
-              Html5QrcodeSupportedFormats.CODE_39,
-              Html5QrcodeSupportedFormats.UPC_A,
-              Html5QrcodeSupportedFormats.UPC_E,
-              Html5QrcodeSupportedFormats.ITF,
-              Html5QrcodeSupportedFormats.QR_CODE
-            ];
-          }
+        // JALUR 1: Native BarcodeDetector (Instan & Ringan di Android Chrome)
+        if ('BarcodeDetector' in window && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          var desiredFormats = ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'itf', 'qr_code'];
+          window.BarcodeDetector.getSupportedFormats().then(function(supported) {
+            var activeFormats = desiredFormats.filter(function(f) { return supported.indexOf(f) !== -1; });
+            if (activeFormats.length === 0) {
+              startHtml5QrFallback(readerId, statusEl);
+              return;
+            }
 
-          html5QrScanner = new Html5Qrcode(readerId, scannerOpts);
-          html5QrScanner.start(
-            { facingMode: 'environment' },
-            {
-              fps: 15,
-              qrbox: function(viewfinderWidth, viewfinderHeight) {
-                return {
-                  width: Math.max(220, Math.floor(viewfinderWidth * 0.85)),
-                  height: Math.max(110, Math.floor(viewfinderHeight * 0.45))
-                };
-              },
-              videoConstraints: {
+            var detector = new window.BarcodeDetector({ formats: activeFormats });
+            navigator.mediaDevices.getUserMedia({
+              video: {
                 facingMode: { ideal: 'environment' },
                 width: { ideal: 1280 },
                 height: { ideal: 720 }
+              },
+              audio: false
+            }).then(function(stream) {
+              nativeScanStream = stream;
+              var tracks = stream.getVideoTracks();
+              nativeScanTrack = (tracks && tracks.length > 0) ? tracks[0] : null;
+              nativeScanTorchOn = false;
+              isScannerRunning = true;
+
+              if (nativeScanTrack && typeof nativeScanTrack.applyConstraints === 'function') {
+                nativeScanTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function() {});
               }
-            },
-            onBarcodeScanSuccess,
-            function() {}
-          ).then(function() {
-            isScannerRunning = true;
-            try {
-              if (html5QrScanner && typeof html5QrScanner.applyVideoConstraints === 'function') {
-                html5QrScanner.applyVideoConstraints({
-                  advanced: [{ focusMode: 'continuous' }]
-                }).catch(function() {});
-              }
-            } catch (e) {}
 
-            if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="fa-solid fa-camera me-1"></i> Kamera HD aktif! Posisikan barcode garis di tengah kotak.</span>';
-          }).catch(function(err) {
-            isScannerRunning = false;
-            html5QrScanner = null;
-            resetScannerUiAll(false);
+              var hasTorch = false;
+              try {
+                if (nativeScanTrack && typeof nativeScanTrack.getCapabilities === 'function') {
+                  var caps = nativeScanTrack.getCapabilities();
+                  hasTorch = !!(caps && caps.torch);
+                }
+              } catch (e) {}
 
-            var isGitHubHost = (window.location && window.location.hostname && window.location.hostname.indexOf('github.io') !== -1);
-            var hintHtml = isGitHubHost
-              ? 'Pastikan izin kamera diizinkan pada pop-up Chrome (atau cek ikon setelan di sebelah alamat situs).'
-              : (globalWebAppUrl
-                  ? ('Jika portal dibuka dari Google Sites, buka link langsung di Chrome: <div class="mt-2"><a href="' + escapeHtml(globalWebAppUrl) + '" target="_blank" rel="noopener" class="btn btn-sm btn-danger fw-bold"><i class="fa-solid fa-up-right-from-square me-1"></i> Buka Mode Penuh</a></div>')
-                  : 'Pastikan izin kamera di browser sudah diaktifkan.');
-
-            if (statusEl) {
-              statusEl.innerHTML = '<div class="alert alert-danger py-2 px-3 small mb-0">' +
-                '<i class="fa-solid fa-triangle-exclamation me-1"></i> ' +
-                '<strong>Gagal membuka kamera</strong> (' + escapeHtml(err) + '). ' + hintHtml +
+              var readerEl = document.getElementById(readerId);
+              if (!readerEl) return;
+              readerEl.innerHTML =
+                '<div class="position-relative" style="width:100%; background:#000; border-radius:10px; overflow:hidden;">' +
+                  '<video id="nativeScanVideo" autoplay playsinline muted style="width:100%; max-height:260px; object-fit:cover; display:block;"></video>' +
+                  '<div style="position:absolute; top:50%; left:8%; right:8%; height:2px; background:rgba(239,68,68,0.85); box-shadow:0 0 8px #ef4444; pointer-events:none;"></div>' +
+                  (hasTorch ? '<button type="button" id="btnNativeScanTorch" class="btn btn-dark btn-sm fw-bold position-absolute bottom-0 end-0 m-2 opacity-75" onclick="toggleScannerTorch()" title="Flash / Senter"><i class="fa-solid fa-bolt text-warning"></i></button>' : '') +
                 '</div>';
-            }
+
+              var videoEl = document.getElementById('nativeScanVideo');
+              videoEl.srcObject = stream;
+              videoEl.play().catch(function() {});
+
+              if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="fa-solid fa-bolt text-warning me-1"></i> Mode Turbo Aktif! Arahkan garis merah ke barcode.</span>';
+
+              var lastCheck = 0;
+              var busyDetect = false;
+              var scanLoop = function(ts) {
+                if (!isScannerRunning || !nativeScanStream) return;
+                if (!busyDetect && videoEl.readyState >= 2 && (ts - lastCheck) >= 80) {
+                  lastCheck = ts;
+                  busyDetect = true;
+                  detector.detect(videoEl).then(function(barcodes) {
+                    busyDetect = false;
+                    if (!isScannerRunning || isProcessingScan) return;
+                    if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                      onBarcodeScanSuccess(barcodes[0].rawValue);
+                      return;
+                    }
+                    nativeScanRafId = requestAnimationFrame(scanLoop);
+                  }).catch(function() {
+                    busyDetect = false;
+                    if (isScannerRunning) nativeScanRafId = requestAnimationFrame(scanLoop);
+                  });
+                } else {
+                  nativeScanRafId = requestAnimationFrame(scanLoop);
+                }
+              };
+              nativeScanRafId = requestAnimationFrame(scanLoop);
+            }).catch(function(err) {
+              isScannerRunning = false;
+              resetScannerUiAll(false);
+              showScannerCameraError(statusEl, err);
+            });
+          }).catch(function() {
+            startHtml5QrFallback(readerId, statusEl);
           });
-        } catch (e) {
-          resetScannerUiAll(false);
-          if (statusEl) statusEl.innerHTML = '<span class="text-danger">Error kamera: ' + escapeHtml(e.message) + '</span>';
+        } else {
+          // JALUR 2: Fallback Ringan (iPhone / Safari / Browser Lama)
+          startHtml5QrFallback(readerId, statusEl);
         }
       });
+    }
+
+    function onBarcodeScanSuccess(decodedText) {
+      if (isProcessingScan) return;
+      isProcessingScan = true;
+      playScanBeep();
+
+      var scannedSku = cleanSkuLocal(decodedText);
+      var noZeroSku = scannedSku.replace(/^0+/, '');
+      var modeNow = activeScannerMode;
+
+      stopBarcodeScanner();
+
+      if (modeNow === 'SELISIH') {
+        var matchedVerif = verifItemsCache.find(function(it) {
+          var s = cleanSkuLocal(it.sku);
+          return s === scannedSku || (noZeroSku && s.replace(/^0+/, '') === noZeroSku);
+        });
+        if (matchedVerif) {
+          openItemModal('SELISIH', matchedVerif);
+          showToast('Barang selisih: ' + matchedVerif.product, false);
+        } else {
+          showToast('SKU ' + scannedSku + ' tidak masuk daftar selisih.', true);
+        }
+        setTimeout(function() {
+          var verifInput = document.getElementById('verifSearchInput');
+          if (verifInput) {
+            verifInput.value = scannedSku;
+            renderVerifSelisihCards(true);
+          }
+        }, 120);
+      } else {
+        var matchedScan = allMasterItemsCache.find(function(it) {
+          var s = cleanSkuLocal(it.sku);
+          return s === scannedSku || (noZeroSku && s.replace(/^0+/, '') === noZeroSku);
+        });
+        if (matchedScan) {
+          openItemModal('SO_AWAL', matchedScan);
+          showToast('Terbaca: ' + matchedScan.product, false);
+        } else {
+          showToast('Barcode ' + scannedSku + ' tidak ditemukan di Sheet Master!', true);
+        }
+        setTimeout(function() {
+          var searchInput = document.getElementById('scanSearchInput');
+          if (searchInput) {
+            searchInput.value = scannedSku;
+            renderScanSoCards(true);
+          }
+        }, 120);
+      }
+
+      setTimeout(function() { isProcessingScan = false; }, 900);
     }
     function onBarcodeScanSuccess(decodedText) {
       if (isProcessingScan) return;
