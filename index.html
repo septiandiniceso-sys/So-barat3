@@ -4476,7 +4476,56 @@ var maxDim = 720;
       return DRAFT_STORAGE_PREFIX + getActiveStoreId() + '_' + cleanSkuLocal(sku);
     }
 
+    function getModalPredictedSelisih() {
+      if (!currentModalItem) return { valid: false, selisih: 0, refStock: 0 };
+      var fisikRaw = (document.getElementById('inputEditFisik').value || '').trim();
+      if (fisikRaw === '' || isNaN(Number(fisikRaw))) {
+        return { valid: false, selisih: 0, refStock: 0 };
+      }
+      var newFisikNum = Number(fisikRaw);
+      var rtrNum = parseNumLocal((document.getElementById('inputEditRtr').value || '').trim());
+      var gudangNum = parseNumLocal(currentModalItem.gudang);
+
+      var jamStr = (currentModalItem.jam || '').toString().trim();
+      var hasJamUpd = (jamStr !== '' && jamStr !== '-');
+      var qtyUpdRaw = (currentModalItem.qtyUpd !== undefined && currentModalItem.qtyUpd !== null)
+        ? currentModalItem.qtyUpd.toString().trim()
+        : '';
+      var qtyUpdNum = parseNumLocal(qtyUpdRaw);
+      var stockAwalNum = parseNumLocal(currentModalItem.stockQty);
+
+      // Pakai Qty Upd HANYA jika ada Jam Upd (sudah update stok level) atau Qty Upd > 0
+      var useQtyUpd = (qtyUpdRaw !== '' && qtyUpdRaw !== '-' && (hasJamUpd || qtyUpdNum > 0));
+      var refStock = useQtyUpd ? qtyUpdNum : stockAwalNum;
+
+      return {
+        valid: true,
+        selisih: (newFisikNum + gudangNum + rtrNum) - refStock,
+        refStock: refStock
+      };
+    }
+
+    function updateModalPhotoRequirementLive() {
+      var badge = document.getElementById('badgePhotoRequired');
+      if (!badge) return;
+      var calc = getModalPredictedSelisih();
+      badge.style.display = 'inline-block';
+
+      if (!calc.valid) {
+        badge.className = 'badge bg-secondary ms-1';
+        badge.innerText = 'WAJIB JIKA SELISIH';
+      } else if (calc.selisih === 0) {
+        badge.className = 'badge bg-success ms-1';
+        badge.innerText = 'BALANCE (FOTO OPSIONAL)';
+      } else {
+        var lbl = calc.selisih > 0 ? ('+' + calc.selisih) : String(calc.selisih);
+        badge.className = 'badge bg-danger ms-1';
+        badge.innerText = 'WAJIB FOTO (SELISIH ' + lbl + ')';
+      }
+    }
+
     function saveModalDraftLocal() {
+      updateModalPhotoRequirementLive();
       if (!currentModalItem) return;
       var draft = {
         fisik: document.getElementById('inputEditFisik').value,
@@ -4618,6 +4667,7 @@ var maxDim = 720;
       populateModalEmployeeSelect('inputEditFlVerif', flVal, '-- Pilih FL Verif --');
       populateModalPendampingSelect('inputEditPendamping', pendVal, '-- Pilih Pendamping --');
       document.getElementById('inputEditKet').value = ketVal;
+      updateModalPhotoRequirementLive();
 
       document.getElementById('modalSaveFeedback').innerHTML = '';
       document.getElementById('modalActiveEmail').innerText = currentUser.email || currentUser.nama;
@@ -4884,14 +4934,10 @@ var maxDim = 720;
         return;
       }
 
-      var newFisikNum = Number(fisikRaw);
-      var rtrRaw = document.getElementById('inputEditRtr').value.trim();
-      var rtrNum = parseNumLocal(rtrRaw);
-      var gudangNum = parseNumLocal(currentModalItem.gudang);
-      var refStock = (currentModalItem.qtyUpd !== '' && currentModalItem.qtyUpd !== '-')
-        ? parseNumLocal(currentModalItem.qtyUpd)
-        : parseNumLocal(currentModalItem.stockQty);
-      var predictedSelisih = (newFisikNum + gudangNum + rtrNum) - refStock;
+  var newFisikNum = Number(fisikRaw);
+    var rtrRaw = document.getElementById('inputEditRtr').value.trim();
+    var calcSelisih = getModalPredictedSelisih();
+    var predictedSelisih = calcSelisih.selisih;
       var hasAnyPhoto = !!(pendingModalPhotoBase64 || currentModalItem.fotoDriveId || currentModalItem.fotoBukti);
 
       if (predictedSelisih !== 0 && !hasAnyPhoto) {
