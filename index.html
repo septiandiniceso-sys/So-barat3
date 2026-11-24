@@ -2031,21 +2031,21 @@
       } catch (e) {}
     }
 
-    function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
+function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
       var sel = document.getElementById(selectId);
       if (!sel) return;
       sel.innerHTML = '';
 
       var optDefault = document.createElement('option');
       optDefault.value = '';
-      optDefault.textContent = placeholderText || '-- Pilih Pendamping --';
+      optDefault.textContent = placeholderText || '-- Pilih Pendamping (SPV) --';
       sel.appendChild(optDefault);
 
       var names = [];
       var seen = {};
-      var addName = function(n) {
+      var addSpvName = function(n) {
         var clean = (n || '').toString()
-          .replace(/^(SPV|Kapten)\s*-\s*/i, '')
+          .replace(/^SPV\s*-\s*/i, '')
           .replace(/\s*\([^)]*\)\s*$/, '')
           .trim();
         if (!clean || clean.toLowerCase().indexOf('pilih') !== -1) return;
@@ -2056,18 +2056,12 @@
         }
       };
 
-      var loginSel = document.getElementById('loginUserSelect') ||
-                     document.getElementById('spvSelect') ||
-                     document.querySelector('#loginScreen select, #loginOverlay select');
-      if (loginSel && loginSel.options) {
-        for (var i = 0; i < loginSel.options.length; i++) {
-          var opt = loginSel.options[i];
-          if (opt.value) addName(opt.textContent);
-        }
-      }
-
-      if (typeof currentUser !== 'undefined' && currentUser && (currentUser.rawNama || currentUser.nama)) {
-        addName(currentUser.rawNama || currentUser.nama);
+      if (Array.isArray(globalUsers) && globalUsers.length > 0) {
+        globalUsers.forEach(function(u) {
+          if (u && (u.role || '').toString().toUpperCase() === 'SPV') {
+            addSpvName(u.rawNama || u.nama);
+          }
+        });
       }
 
       names.sort(function(a, b) { return a.localeCompare(b, 'id'); });
