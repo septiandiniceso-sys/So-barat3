@@ -1697,9 +1697,9 @@
                 </div>
               </div>
 
-              <div class="col-6 col-md-4">
-                <label class="form-label small fw-bold mb-1">LABEL TAG</label>
-                <select id="inputEditLabelTag" class="form-select form-select-lg fw-bold" onchange="saveModalDraftLocal()">
+             <div class="col-6 col-md-4">
+                <label class="form-label small fw-bold mb-1">LABEL TAG <span class="text-danger">*</span></label>
+                <select id="inputEditLabelTag" class="form-select form-select-lg fw-bold border-danger" onchange="saveModalDraftLocal()">
                   <option value="">-- Pilih --</option>
                   <option value="YES">YES</option>
                   <option value="NO">NO</option>
@@ -3931,7 +3931,7 @@
       stopBarcodeScannerAsync(true);
     }
 
-    function startBarcodeScanner(mode) {
+function startBarcodeScanner(mode) {
       var scanMode = (mode === 'SELISIH') ? 'SELISIH' : 'SCAN';
       var isVerif = (scanMode === 'SELISIH');
       var readerId = isVerif ? 'qrReaderVerif' : 'qrReader';
@@ -3956,18 +3956,56 @@
         if (wrapper) wrapper.style.display = 'block';
         if (btnStart) btnStart.style.display = 'none';
         if (btnStop) btnStop.style.display = 'inline-block';
-        if (statusEl) statusEl.innerHTML = '<span class="text-primary"><i class="fa-solid fa-spinner fa-spin me-1"></i> Membuka kamera belakang...</span>';
+        if (statusEl) statusEl.innerHTML = '<span class="text-primary"><i class="fa-solid fa-spinner fa-spin me-1"></i> Membuka kamera HD...</span>';
 
         try {
-          html5QrScanner = new Html5Qrcode(readerId);
+          var scannerOpts = {
+            verbose: false,
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+          };
+          if (typeof Html5QrcodeSupportedFormats !== 'undefined') {
+            scannerOpts.formatsToSupport = [
+              Html5QrcodeSupportedFormats.EAN_13,
+              Html5QrcodeSupportedFormats.EAN_8,
+              Html5QrcodeSupportedFormats.CODE_128,
+              Html5QrcodeSupportedFormats.CODE_39,
+              Html5QrcodeSupportedFormats.UPC_A,
+              Html5QrcodeSupportedFormats.UPC_E,
+              Html5QrcodeSupportedFormats.ITF,
+              Html5QrcodeSupportedFormats.QR_CODE
+            ];
+          }
+
+          html5QrScanner = new Html5Qrcode(readerId, scannerOpts);
           html5QrScanner.start(
             { facingMode: 'environment' },
-            { fps: 10, qrbox: { width: 250, height: 140 }, aspectRatio: 1.5 },
+            {
+              fps: 15,
+              qrbox: function(viewfinderWidth, viewfinderHeight) {
+                return {
+                  width: Math.max(220, Math.floor(viewfinderWidth * 0.85)),
+                  height: Math.max(110, Math.floor(viewfinderHeight * 0.45))
+                };
+              },
+              videoConstraints: {
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+              }
+            },
             onBarcodeScanSuccess,
             function() {}
           ).then(function() {
             isScannerRunning = true;
-            if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="fa-solid fa-camera me-1"></i> Kamera aktif! Arahkan ke Barcode produk.</span>';
+            try {
+              if (html5QrScanner && typeof html5QrScanner.applyVideoConstraints === 'function') {
+                html5QrScanner.applyVideoConstraints({
+                  advanced: [{ focusMode: 'continuous' }]
+                }).catch(function() {});
+              }
+            } catch (e) {}
+
+            if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="fa-solid fa-camera me-1"></i> Kamera HD aktif! Posisikan barcode garis di tengah kotak.</span>';
           }).catch(function(err) {
             isScannerRunning = false;
             html5QrScanner = null;
@@ -3993,7 +4031,6 @@
         }
       });
     }
-
     function onBarcodeScanSuccess(decodedText) {
       if (isProcessingScan) return;
       isProcessingScan = true;
@@ -4324,17 +4361,16 @@
       document.getElementById('modalPhotoPreviewImg').removeAttribute('src');
       document.getElementById('btnRemoveNewPhoto').style.display = 'none';
 
-      var modeBadge = document.getElementById('modalModeBadge');
+   var modeBadge = document.getElementById('modalModeBadge');
       var photoReqBadge = document.getElementById('badgePhotoRequired');
       if (menuMode === 'SELISIH') {
         modeBadge.className = 'badge bg-danger mb-1';
         modeBadge.innerText = 'VERIFIKASI SELISIH (KS / LS)';
-        photoReqBadge.style.display = 'inline-block';
       } else {
         modeBadge.className = 'badge bg-primary mb-1';
         modeBadge.innerText = 'SCAN BARCODE / SO AWAL';
-        photoReqBadge.style.display = 'none';
       }
+      if (photoReqBadge) photoReqBadge.style.display = 'inline-block';
 
       document.getElementById('modalProductTitle').innerText = item.product || '-';
       document.getElementById('modalSkuSubtitle').innerText = 'SKU: ' + (item.sku || '-') + '  |  Baris #' + item.rowIndex;
@@ -4537,9 +4573,17 @@
       if (isRetry && lastFailedSavePayload) {
         payload = lastFailedSavePayload;
       } else {
-        var fisikRaw = document.getElementById('inputEditFisik').value.trim();
+var fisikRaw = document.getElementById('inputEditFisik').value.trim();
         if (fisikRaw === '' || isNaN(Number(fisikRaw)) || Number(fisikRaw) < 0) {
           feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0">Isi kolom <strong>FISIK</strong> dengan angka 0 atau lebih!</div>';
+          return;
+        }
+
+        var labelTagVal = (document.getElementById('inputEditLabelTag').value || '').trim();
+        if (!labelTagVal) {
+          feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0"><i class="fa-solid fa-tag me-1"></i> Kolom <strong>LABEL TAG</strong> wajib dipilih (YES / NO / GDG / RTR) terlebih dahulu!</div>';
+          var tagEl = document.getElementById('inputEditLabelTag');
+          if (tagEl) tagEl.focus();
           return;
         }
 
@@ -4552,8 +4596,9 @@
         var predictedSelisih = (newFisikNum + gudangNum + rtrNum) - refStock;
         var hasAnyPhoto = !!(pendingModalPhotoBase64 || currentModalItem.fotoDriveId || currentModalItem.fotoBukti);
 
-        if (currentModalMode === 'SELISIH' && predictedSelisih !== 0 && !hasAnyPhoto) {
-          feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0"><i class="fa-solid fa-camera me-1"></i> <strong>Foto Bukti Wajib Dilampirkan</strong> untuk barang yang masih berselisih! Tekan tombol <strong>"Kamera Cepat"</strong> di kotak kuning atas.</div>';
+        if (predictedSelisih !== 0 && !hasAnyPhoto) {
+          var selisihLabel = predictedSelisih > 0 ? ('+' + predictedSelisih) : String(predictedSelisih);
+          feedback.innerHTML = '<div class="alert alert-warning py-2 small mb-0"><i class="fa-solid fa-camera me-1"></i> <strong>Foto Bukti Wajib Dilampirkan</strong> karena stok berselisih (<strong>' + selisihLabel + '</strong>)! Tekan tombol <strong>"Kamera Cepat"</strong> atau <strong>"Galeri / HP"</strong> di kotak kuning atas.</div>';
           return;
         }
 
