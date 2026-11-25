@@ -3884,12 +3884,17 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
     }
 
 // =========================================================================
-    // 9. KAMERA BARCODE SCANNER DUAL-ENGINE (NATIVE CEPAT + FALLBACK RINGAN)
+    // 9. KAMERA BARCODE SCANNER DUAL-ENGINE (AUTO LENSA UTAMA + ZOOM + FLASH)
     // =========================================================================
     var nativeScanStream = null;
     var nativeScanRafId = null;
     var nativeScanTrack = null;
     var nativeScanTorchOn = false;
+    var nativeRearCameras = [];
+    var nativeRearCamIndex = 0;
+    var nativeScanZoomLevel = 1;
+    var nativeScanZoomMax = 1;
+    var PREFERRED_CAM_STORAGE_KEY = 'barat3_pref_rear_cam_id';
 
     function playScanBeep() {
       try {
@@ -3936,6 +3941,103 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
       }
     }
 
+    function scoreRearCameraLabel(label) {
+      var low = (label || '').toLowerCase();
+      var score = 0;
+      if (/ultra|0\.5|0,5|macro|depth|tele|mono|bokeh|tof/.test(low)) score -= 50;
+      if (/camera2\s*0|back\s*0|main|utama|facing back/.test(low)) score += 20;
+      return score;
+    }
+
+    function getRearCamerasFromDevices(devices) {
+      var vids = (devices || []).filter(function(d) { return d.kind === 'videoinput'; });
+      var rears = vids.filter(function(d) {
+        var lbl = (d.label || '').toLowerCase();
+        return !/front|user|selfie|depan|facing front/.test(lbl);
+      });
+      var list = (rears.length > 0) ? rears : vids;
+      list.sort(function(a, b) {
+        return scoreRearCameraLabel(b.label) - scoreRearCameraLabel(a.label);
+      });
+      return list;
+    }
+
+    function updateScannerOverlayButtons() {
+      var btnLens = document.getElementById('btnNativeScanLens');
+      if (btnLens) {
+        if (nativeRearCameras.length > 1) {
+          btnLens.style.display = 'inline-block';
+          btnLens.innerHTML = '<i class="fa-solid fa-camera-rotate me-1"></i>Lensa ' + (nativeRearCamIndex + 1) + '/' + nativeRearCameras.length;
+        } else {
+          btnLens.style.display = 'none';
+        }
+      }
+
+      var btnZoom = document.getElementById('btnNativeScanZoom');
+      if (btnZoom) {
+        if (nativeScanZoomMax > 1.2) {
+          btnZoom.style.display = 'inline-block';
+          var isZoomed = nativeScanZoomLevel > 1.1;
+          btnZoom.className = isZoomed
+            ? 'btn btn-warning text-dark btn-sm fw-bold'
+            : 'btn btn-dark btn-sm fw-bold opacity-75';
+          btnZoom.innerHTML = '<i class="fa-solid fa-magnifying-glass-plus me-1"></i>' + (isZoomed ? (nativeScanZoomLevel.toFixed(1).replace('.0', '') + 'x') : '1x');
+        } else {
+          btnZoom.style.display = 'none';
+        }
+      }
+    }
+
+    function switchScannerLens() {
+      if (nativeRearCameras.length <= 1) {
+        showToast('HP ini hanya menampilkan 1 lensa belakang di browser.', true);
+        return;
+      }
+      nativeRearCamIndex = (nativeRearCamIndex + 1) % nativeRearCameras.length;
+      var chosen = nativeRearCameras[nativeRearCamIndex];
+      if (chosen && chosen.deviceId) {
+        safeStorageSet(PREFERRED_CAM_STORAGE_KEY, chosen.deviceId);
+      }
+      showToast('Pindah ke Lensa ' + (nativeRearCamIndex + 1) + '/' + nativeRearCameras.length + '...', false);
+      startBarcodeScanner(activeScannerMode || 'SCAN');
+    }
+
+    function applyScannerZoom(targetZoom) {
+      if (!nativeScanTrack || typeof nativeScanTrack.applyConstraints !== 'function') return;
+      var clamped = Math.max(1, Math.min(targetZoom, nativeScanZoomMax));
+      nativeScanTrack.applyConstraints({
+        advanced: [{ zoom: clamped }]
+      }).then(function() {
+        nativeScanZoomLevel = clamped;
+        updateScannerOverlayButtons();
+      }).catch(function() {
+        showToast('Zoom kamera tidak didukung di lensa ini.', true);
+      });
+    }
+
+    function toggleScannerZoom() {
+      if (nativeScanZoomMax <= 1.2) return;
+      var nextZoom = (nativeScanZoomLevel > 1.1) ? 1 : Math.min(2, nativeScanZoomMax);
+      applyScannerZoom(nextZoom);
+    }
+
+    function refocusScannerCamera() {
+      if (!nativeScanTrack || typeof nativeScanTrack.applyConstraints !== 'function') return;
+      nativeScanTrack.applyConstraints({
+        advanced: [{ focusMode: 'single-shot' }]
+      }).then(function() {
+        setTimeout(function() {
+          if (nativeScanTrack && typeof nativeScanTrack.applyConstraints === 'function') {
+            nativeScanTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function() {});
+          }
+        }, 350);
+      }).catch(function() {
+        nativeScanTrack.applyConstraints({
+          advanced: [{ focusMode: 'continuous' }]
+        }).catch(function() {});
+      });
+    }
+
     function toggleScannerTorch() {
       if (!nativeScanTrack || typeof nativeScanTrack.applyConstraints !== 'function') return;
       var nextState = !nativeScanTorchOn;
@@ -3946,8 +4048,8 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
         var btn = document.getElementById('btnNativeScanTorch');
         if (btn) {
           btn.className = nativeScanTorchOn
-            ? 'btn btn-warning text-dark btn-sm fw-bold position-absolute bottom-0 end-0 m-2'
-            : 'btn btn-dark btn-sm fw-bold position-absolute bottom-0 end-0 m-2 opacity-75';
+            ? 'btn btn-warning text-dark btn-sm fw-bold'
+            : 'btn btn-dark btn-sm fw-bold opacity-75';
         }
       }).catch(function() {
         showToast('Flash tidak didukung di browser HP ini.', true);
@@ -3998,7 +4100,7 @@ function populateModalPendampingSelect(selectId, selectedVal, placeholderText) {
       stopBarcodeScannerAsync(true);
     }
 
-function startHtml5QrFallback(readerId, statusEl) {
+    function startHtml5QrFallback(readerId, statusEl) {
       if (typeof Html5Qrcode === 'undefined') {
         resetScannerUiAll(false);
         if (statusEl) statusEl.innerHTML = '<span class="text-danger">Library kamera belum siap. Muat ulang halaman lalu coba lagi.</span>';
@@ -4081,6 +4183,49 @@ function startHtml5QrFallback(readerId, statusEl) {
       }
     }
 
+    function openBestRearCameraStream() {
+      var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var defaultConstraints = {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      };
+
+      // Di iPhone biarkan langsung pakai facingMode bawaan agar tetap mulus
+      if (isIOS || !navigator.mediaDevices.enumerateDevices) {
+        return navigator.mediaDevices.getUserMedia(defaultConstraints);
+      }
+
+      return navigator.mediaDevices.enumerateDevices().then(function(devices) {
+        var rears = getRearCamerasFromDevices(devices);
+        var hasLabels = rears.some(function(d) { return d.label && d.label.trim() !== ''; });
+        if (rears.length > 1 && hasLabels) {
+          nativeRearCameras = rears;
+          var savedId = safeStorageGet(PREFERRED_CAM_STORAGE_KEY) || '';
+          var savedIdx = savedId ? rears.findIndex(function(d) { return d.deviceId === savedId; }) : -1;
+          nativeRearCamIndex = (savedIdx !== -1) ? savedIdx : 0;
+          var targetDev = rears[nativeRearCamIndex];
+          return navigator.mediaDevices.getUserMedia({
+            video: {
+              deviceId: { exact: targetDev.deviceId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          }).catch(function() {
+            return navigator.mediaDevices.getUserMedia(defaultConstraints);
+          });
+        }
+        return navigator.mediaDevices.getUserMedia(defaultConstraints);
+      }).catch(function() {
+        return navigator.mediaDevices.getUserMedia(defaultConstraints);
+      });
+    }
+
     function startBarcodeScanner(mode) {
       var scanMode = (mode === 'SELISIH') ? 'SELISIH' : 'SCAN';
       var isVerif = (scanMode === 'SELISIH');
@@ -4103,7 +4248,7 @@ function startHtml5QrFallback(readerId, statusEl) {
         if (btnStop) btnStop.style.display = 'inline-block';
         if (statusEl) statusEl.innerHTML = '<span class="text-primary"><i class="fa-solid fa-spinner fa-spin me-1"></i> Membuka kamera...</span>';
 
-        // JALUR 1: Native BarcodeDetector (Instan & Ringan di Android Chrome)
+        // JALUR 1: Native BarcodeDetector / ZBar WASM (Instan & Ringan)
         if ('BarcodeDetector' in window && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
           var desiredFormats = ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'itf', 'qr_code'];
           window.BarcodeDetector.getSupportedFormats().then(function(supported) {
@@ -4114,18 +4259,12 @@ function startHtml5QrFallback(readerId, statusEl) {
             }
 
             var detector = new window.BarcodeDetector({ formats: activeFormats });
-            navigator.mediaDevices.getUserMedia({
-              video: {
-                facingMode: { ideal: 'environment' },
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-              },
-              audio: false
-            }).then(function(stream) {
+            openBestRearCameraStream().then(function(stream) {
               nativeScanStream = stream;
               var tracks = stream.getVideoTracks();
               nativeScanTrack = (tracks && tracks.length > 0) ? tracks[0] : null;
               nativeScanTorchOn = false;
+              nativeScanZoomMax = 1;
               isScannerRunning = true;
 
               if (nativeScanTrack && typeof nativeScanTrack.applyConstraints === 'function') {
@@ -4137,6 +4276,9 @@ function startHtml5QrFallback(readerId, statusEl) {
                 if (nativeScanTrack && typeof nativeScanTrack.getCapabilities === 'function') {
                   var caps = nativeScanTrack.getCapabilities();
                   hasTorch = !!(caps && caps.torch);
+                  if (caps && caps.zoom && caps.zoom.max > 1.2) {
+                    nativeScanZoomMax = caps.zoom.max;
+                  }
                 }
               } catch (e) {}
 
@@ -4144,16 +4286,47 @@ function startHtml5QrFallback(readerId, statusEl) {
               if (!readerEl) return;
               readerEl.innerHTML =
                 '<div class="position-relative" style="width:100%; background:#000; border-radius:10px; overflow:hidden;">' +
-                  '<video id="nativeScanVideo" autoplay playsinline muted style="width:100%; max-height:260px; object-fit:cover; display:block;"></video>' +
+                  '<video id="nativeScanVideo" autoplay playsinline muted onclick="refocusScannerCamera()" style="width:100%; max-height:260px; object-fit:cover; display:block; cursor:pointer;"></video>' +
                   '<div style="position:absolute; top:50%; left:8%; right:8%; height:2px; background:rgba(239,68,68,0.85); box-shadow:0 0 8px #ef4444; pointer-events:none;"></div>' +
-                  (hasTorch ? '<button type="button" id="btnNativeScanTorch" class="btn btn-dark btn-sm fw-bold position-absolute bottom-0 end-0 m-2 opacity-75" onclick="toggleScannerTorch()" title="Flash / Senter"><i class="fa-solid fa-bolt text-warning"></i></button>' : '') +
+                  '<div class="position-absolute bottom-0 end-0 m-2 d-flex gap-1">' +
+                    '<button type="button" id="btnNativeScanLens" class="btn btn-dark btn-sm fw-bold opacity-75" style="display:none;" onclick="switchScannerLens()" title="Ganti Lensa Belakang"><i class="fa-solid fa-camera-rotate me-1"></i>Lensa</button>' +
+                    '<button type="button" id="btnNativeScanZoom" class="btn btn-dark btn-sm fw-bold opacity-75" style="display:none;" onclick="toggleScannerZoom()" title="Zoom 1x / 2x"><i class="fa-solid fa-magnifying-glass-plus me-1"></i>1x</button>' +
+                    (hasTorch ? '<button type="button" id="btnNativeScanTorch" class="btn btn-dark btn-sm fw-bold opacity-75" onclick="toggleScannerTorch()" title="Flash / Senter"><i class="fa-solid fa-bolt text-warning"></i></button>' : '') +
+                  '</div>' +
                 '</div>';
 
               var videoEl = document.getElementById('nativeScanVideo');
               videoEl.srcObject = stream;
               videoEl.play().catch(function() {});
 
-              if (statusEl) statusEl.innerHTML = '<span class="text-success"><i class="fa-solid fa-bolt text-warning me-1"></i> Mode Turbo Aktif! Arahkan garis merah ke barcode.</span>';
+              // Segarkan daftar lensa belakang setelah izin kamera aktif
+              if (navigator.mediaDevices.enumerateDevices) {
+                navigator.mediaDevices.enumerateDevices().then(function(devs) {
+                  var rears = getRearCamerasFromDevices(devs);
+                  if (rears.length > 1) {
+                    nativeRearCameras = rears;
+                    var curDevId = (nativeScanTrack && typeof nativeScanTrack.getSettings === 'function')
+                      ? (nativeScanTrack.getSettings().deviceId || '')
+                      : '';
+                    var idxMatch = curDevId ? rears.findIndex(function(d) { return d.deviceId === curDevId; }) : -1;
+                    if (idxMatch !== -1) nativeRearCamIndex = idxMatch;
+                  }
+                  updateScannerOverlayButtons();
+                }).catch(function() {
+                  updateScannerOverlayButtons();
+                });
+              } else {
+                updateScannerOverlayButtons();
+              }
+
+              // Terapkan kembali zoom jika sebelumnya petugas menyalakan 2x
+              if (nativeScanZoomLevel > 1.1 && nativeScanZoomMax > 1.2) {
+                applyScannerZoom(nativeScanZoomLevel);
+              }
+
+              if (statusEl) {
+                statusEl.innerHTML = '<span class="text-success"><i class="fa-solid fa-bolt text-warning me-1"></i> Mode Turbo Aktif! Jika buram, tekan <strong>Lensa</strong> / <strong>2x</strong> atau sentuh layar kamera.</span>';
+              }
 
               var lastCheck = 0;
               var busyDetect = false;
@@ -4188,7 +4361,7 @@ function startHtml5QrFallback(readerId, statusEl) {
             startHtml5QrFallback(readerId, statusEl);
           });
         } else {
-          // JALUR 2: Fallback Ringan (iPhone / Safari / Browser Lama)
+          // JALUR 2: Fallback Ringan
           startHtml5QrFallback(readerId, statusEl);
         }
       });
