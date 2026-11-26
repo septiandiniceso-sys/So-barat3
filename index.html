@@ -5825,6 +5825,113 @@ var maxDim = 720;
       return cleanObjects;
     }
 
+function extractGudangNormalized15Cols(raw2DArray) {
+      var STANDARD_HEADERS = [
+        'No', 'Toko', 'Nama Toko (SO)', 'No Kolian', 'Sumber',
+        'No Order', 'SKU', 'Nama Barang', 'Qty Awal', 'Keluar Display',
+        'Sisa Stok', 'Tgl Masuk', 'Umur (Hr)', 'Zona FIFO', 'Petugas'
+      ];
+      if (!raw2DArray || raw2DArray.length === 0) return [];
+
+      // 1. Cari baris header secara otomatis (lewati judul/banner di atasnya)
+      var headerRowIdx = 0;
+      var maxScan = Math.min(raw2DArray.length, 35);
+      for (var r = 0; r < maxScan; r++) {
+        var rowCells = (raw2DArray[r] || []).map(function(c) {
+          return (c !== null && c !== undefined) ? c.toString().trim().toLowerCase() : '';
+        });
+        var hasSku = rowCells.some(function(c) {
+          return c === 'sku' || c === 'barcode' || c === 'kode barang' || c === 'kode_barang';
+        });
+        var hasQtyOrName = rowCells.some(function(c) {
+          return c.indexOf('sisa') !== -1 || c.indexOf('qty') !== -1 || c.indexOf('nama barang') !== -1 || c.indexOf('kolian') !== -1;
+        });
+        if (hasSku && hasQtyOrName) {
+          headerRowIdx = r;
+          break;
+        }
+      }
+
+      var headersLower = (raw2DArray[headerRowIdx] || []).map(function(h) {
+        return (h !== null && h !== undefined) ? h.toString().trim().toLowerCase() : '';
+      });
+
+      var findCol = function(exactList, partialList) {
+        for (var i = 0; i < headersLower.length; i++) {
+          if (exactList.indexOf(headersLower[i]) !== -1) return i;
+        }
+        if (partialList) {
+          for (var j = 0; j < headersLower.length; j++) {
+            for (var k = 0; k < partialList.length; k++) {
+              if (headersLower[j].indexOf(partialList[k]) !== -1) return j;
+            }
+          }
+        }
+        return -1;
+      };
+
+      var idxToko     = findCol(['toko', 'kode toko'], []);
+      var idxNamaToko = findCol(['nama toko (so)', 'nama toko'], ['nama toko']);
+      var idxKolian   = findCol(['no kolian', 'kolian', 'no_kolian'], ['kolian']);
+      var idxSumber   = findCol(['sumber'], ['sumber']);
+      var idxOrder    = findCol(['no order', 'no_order', 'nomor order'], ['order']);
+      var idxSku      = findCol(['sku', 'barcode', 'kode barang', 'kode_barang'], ['sku']);
+      var idxNama     = findCol(['nama barang', 'nama produk', 'product', 'produk'], ['nama barang', 'produk']);
+      var idxQtyAwal  = findCol(['qty awal', 'qty_awal'], ['qty awal']);
+      var idxKeluar   = findCol(['keluar display', 'keluar_display', 'display'], ['keluar']);
+      var idxSisa     = findCol(['sisa stok', 'sisa_stok', 'sisa'], ['sisa']);
+      var idxQtyUmum  = findCol(['qty', 'stok', 'jumlah'], []);
+      var idxTgl      = findCol(['tgl masuk', 'tanggal masuk', 'tgl_masuk'], ['tgl', 'tanggal']);
+      var idxUmur     = findCol(['umur (hr)', 'umur', 'umur_hr'], ['umur']);
+      var idxFifo     = findCol(['zona fifo', 'fifo', 'zona_fifo'], ['fifo']);
+      var idxPetugas  = findCol(['petugas', 'catatan', 'keterangan', 'pic'], ['petugas', 'catatan']);
+
+      if (idxSku === -1) return [];
+
+      var getVal = function(row, idx) {
+        if (idx === -1 || !row || row[idx] === undefined || row[idx] === null) return '';
+        return row[idx].toString().trim();
+      };
+
+      var outRows = [STANDARD_HEADERS];
+      var rowNum = 1;
+
+      for (var r2 = headerRowIdx + 1; r2 < raw2DArray.length; r2++) {
+        var row = raw2DArray[r2];
+        if (!row || row.length === 0) continue;
+
+        var skuVal = cleanSkuLocal(getVal(row, idxSku));
+        if (!skuVal || skuVal.toLowerCase() === 'total' || skuVal.toLowerCase() === 'grand total') continue;
+
+        // Jika Download Excel Rapi -> pakai Sisa Stok; jika Template Upload -> pakai Qty
+        var sisaRaw = (idxSisa !== -1) ? getVal(row, idxSisa) : getVal(row, idxQtyUmum);
+        var sisaNum = parseNumLocal(sisaRaw);
+        var qtyAwalNum = (idxQtyAwal !== -1) ? parseNumLocal(getVal(row, idxQtyAwal)) : sisaNum;
+        var keluarNum = (idxKeluar !== -1) ? parseNumLocal(getVal(row, idxKeluar)) : 0;
+        var umurVal = getVal(row, idxUmur);
+
+        outRows.push([
+          rowNum++,
+          getVal(row, idxToko),
+          getVal(row, idxNamaToko),
+          getVal(row, idxKolian),
+          getVal(row, idxSumber),
+          getVal(row, idxOrder),
+          skuVal,
+          getVal(row, idxNama),
+          qtyAwalNum,
+          keluarNum,
+          sisaNum,
+          getVal(row, idxTgl),
+          umurVal !== '' ? parseNumLocal(umurVal) : '',
+          getVal(row, idxFifo),
+          getVal(row, idxPetugas)
+        ]);
+      }
+
+      return outRows.length > 1 ? outRows : [];
+    }
+
     function executeUpload() {
       var fileInput = document.getElementById('fileUploadInput');
       var targetSheet = document.getElementById('uploadTargetSheet').value;
@@ -5845,13 +5952,17 @@ var maxDim = 720;
           try {
             var workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
             if (targetSheet === 'DATA GUDANG') {
-              var matchedSheetName = workbook.SheetNames.find(function(n) { return n.toString().trim().toLowerCase() === 'data gudang'; });
-              if (!matchedSheetName) {
-                uploadError('Tab "data gudang" tidak ditemukan di file Excel ini! Tab tersedia: ' + workbook.SheetNames.join(', '));
+              // Cari tab yang mengandung "gudang", jika tidak ada otomatis pakai tab pertama
+              var matchedSheetName = workbook.SheetNames.find(function(n) {
+                return n.toString().trim().toLowerCase().indexOf('gudang') !== -1;
+              }) || workbook.SheetNames[0];
+              var raw2D = XLSX.utils.sheet_to_json(workbook.Sheets[matchedSheetName], { header: 1, raw: false, defval: '' });
+              var normalized2D = extractGudangNormalized15Cols(raw2D);
+              if (normalized2D.length === 0) {
+                uploadError('Kolom SKU tidak ditemukan pada tab "' + matchedSheetName + '". Pastikan file berasal dari Download Rapi / Template Web App Toko.');
                 return;
               }
-              var raw2D = XLSX.utils.sheet_to_json(workbook.Sheets[matchedSheetName], { header: 1, raw: false, defval: '' });
-              submitToServer(targetSheet, raw2D);
+              submitToServer(targetSheet, normalized2D);
             } else {
               var raw2D2 = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, raw: false, defval: '' });
               submitToServer(targetSheet, extractCleanTableRows(raw2D2));
@@ -5864,7 +5975,16 @@ var maxDim = 720;
         Papa.parse(file, {
           header: false, skipEmptyLines: true,
           complete: function(res) {
-            submitToServer(targetSheet, targetSheet === 'DATA GUDANG' ? res.data : extractCleanTableRows(res.data));
+            if (targetSheet === 'DATA GUDANG') {
+              var normalizedCsv = extractGudangNormalized15Cols(res.data);
+              if (normalizedCsv.length === 0) {
+                uploadError('Kolom SKU tidak ditemukan pada file CSV DATA GUDANG.');
+                return;
+              }
+              submitToServer(targetSheet, normalizedCsv);
+            } else {
+              submitToServer(targetSheet, extractCleanTableRows(res.data));
+            }
           },
           error: function(err) { uploadError('Gagal membaca CSV: ' + err.message); }
         });
